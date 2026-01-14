@@ -24,7 +24,7 @@ export function detectAudioIntent(prompt: string) {
 export async function generateTTS(text: string): Promise<string> {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-1.5-flash",
       contents: [{ parts: [{ text: `Read this aloud clearly: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -42,7 +42,7 @@ export async function generateTTS(text: string): Promise<string> {
 }
 
 export async function askVynaa(question: string, context: string = '', audioRequested: boolean = false): Promise<VynaaResponse> {
-  const modelName = audioRequested ? 'gemini-2.5-flash-preview-tts' : 'gemini-3-flash-preview';
+  const modelName = 'gemini-2.0-flash-exp'; // Using experimental flash model for now
 
   const systemInstruction = `You are Vynaa AI. 
   1. Provide a concise, insightful answer.
@@ -66,12 +66,13 @@ export async function askVynaa(question: string, context: string = '', audioRequ
     },
   };
 
-  if (audioRequested) {
-    config.responseModalities = [Modality.AUDIO];
-    config.speechConfig = {
-      voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
-    };
-  }
+  // Audio features temporarily disabled for gemini-2.0-flash-exp compatibility
+  // if (audioRequested) {
+  //   config.responseModalities = [Modality.AUDIO];
+  //   config.speechConfig = {
+  //     voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+  //   };
+  // }
 
   try {
     const response = await ai.models.generateContent({

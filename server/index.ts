@@ -1,12 +1,20 @@
+import './loadEnv';
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import dotenv from 'dotenv';
 
-// Load env vars FIRST
-dotenv.config({ path: '.env.local' });
+// Env vars are now loaded by ./loadEnv import above
+
+
+// Validate critical environment variables
+if (!process.env.GEMINI_API_KEY) {
+    console.error('❌ GEMINI_API_KEY is not defined in .env.local');
+    console.error('   Please ensure .env.local contains: GEMINI_API_KEY=your_api_key_here');
+    process.exit(1);
+}
+console.log('✅ GEMINI_API_KEY loaded successfully');
 
 // Import routes
 import authRoutes from './routes/auth';
