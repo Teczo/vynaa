@@ -5,6 +5,8 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
+import sessionRoutes from './routes/sessions';
+import turnRoutes from './routes/turns';
 
 // Load env vars
 dotenv.config({ path: '.env.local' });
@@ -55,6 +57,8 @@ app.use('/api/user', userRoutes);
 app.use('/api/projects', protect, projectRoutes);
 app.use('/api/conversations', protect, conversationRoutes);
 app.use('/api/search', protect, searchRoutes);
+app.use('/api/sessions', protect, sessionRoutes);
+app.use('/api/sessions', protect, turnRoutes);
 
 // Start Server
 const startServer = async () => {

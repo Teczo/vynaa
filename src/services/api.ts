@@ -5,8 +5,8 @@ const apiStr = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const API_URL = apiStr;
 
 const api = axios.create({
-    baseURL: API_URL, // Changed to use API_URL
-    withCredentials: true, // Important for cookies
+    baseURL: API_URL,
+    withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
     },
@@ -15,14 +15,7 @@ const api = axios.create({
 // Request interceptor to add Access Token
 api.interceptors.request.use(
     (config) => {
-        // We don't store access token in localStorage for security (it's in memory).
-        // The AuthContext will inject it via the Authorization header if we stored it there?
-        // Actually, usually we store it in memory variable in api.ts or context.
-        // For this implementation, we'll let the AuthContext handle setting the header 
-        // OR we can store it in a closure here if we export a setToken function.
-
-        // Better approach: AuthContext manages the token and we can set existing header.
-        const token = localStorage.getItem('accessToken'); // Fallback if we decide to use LS, but planned for memory
+        const token = localStorage.getItem('accessToken');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -37,23 +30,16 @@ api.interceptors.response.use(
     async (error) => {
         const originalRequest = error.config;
 
-        // If 401 and not already retrying
         if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh')) {
             originalRequest._retry = true;
 
             try {
                 const { data } = await api.post('/auth/refresh');
                 const newToken = data.token;
-
-                // Update local storage or memory (Context should handle this ideally, but for axios interceptor to work independently...)
                 localStorage.setItem('accessToken', newToken);
-
-                // Retry original request
                 originalRequest.headers.Authorization = `Bearer ${newToken}`;
                 return api(originalRequest);
             } catch (refreshError) {
-                // Refresh failed (token expired or invalid)
-                // Redirect to login or clear state
                 localStorage.removeItem('accessToken');
                 window.location.href = '/login';
                 return Promise.reject(refreshError);
@@ -65,6 +51,7 @@ api.interceptors.response.use(
 
 export default api;
 
+// Projects API
 export const projects = {
     list: async () => {
         const response = await api.get('/projects');
@@ -84,34 +71,61 @@ export const projects = {
     }
 };
 
-export const conversations = {
-    listByProject: async (projectId: string | null) => {
-        const param = projectId === null ? 'null' : projectId;
-        const response = await api.get(`/conversations?projectId=${param}`);
+// Sessions API (replaces conversations)
+export const sessions = {
+    list: async (projectId?: string | null, status: string = 'active') => {
+        const params = new URLSearchParams();
+        params.append('status', status);
+        if (projectId !== undefined) {
+            params.append('projectId', projectId === null ? 'null' : projectId);
+        }
+        const response = await api.get(`/sessions?${params.toString()}`);
         return response.data;
     },
+
     get: async (id: string) => {
-        const response = await api.get(`/conversations/${id}`);
+        const response = await api.get(`/sessions/${id}`);
         return response.data;
     },
-    create: async (title: string, projectId: string | null) => {
-        const response = await api.post('/conversations', { title, projectId });
+
+    create: async (title: string, projectId: string | null = null) => {
+        const response = await api.post('/sessions', { title, projectId });
         return response.data;
     },
-    update: async (id: string, updates: { title?: string; projectId?: string | null; deletedAt?: Date | null }) => {
-        const response = await api.patch(`/conversations/${id}`, updates);
+
+    update: async (id: string, updates: {
+        title?: string;
+        projectId?: string | null;
+        status?: string;
+        summary?: string;
+    }) => {
+        const response = await api.patch(`/sessions/${id}`, updates);
         return response.data;
     },
-    sync: async (id: string, data: { nodes?: any[]; viewport?: any; version?: number }) => {
-        const response = await api.post(`/conversations/${id}/sync`, data);
-        return response.data;
-    },
+
     delete: async (id: string) => {
-        const response = await api.delete(`/conversations/${id}`);
+        const response = await api.delete(`/sessions/${id}`);
         return response.data;
     }
 };
 
+// Turns API
+export const turns = {
+    list: async (sessionId: string) => {
+        const response = await api.get(`/sessions/${sessionId}/turns`);
+        return response.data;
+    },
+
+    create: async (sessionId: string, content: string, position?: { x: number; y: number }) => {
+        const response = await api.post(`/sessions/${sessionId}/turns`, {
+            content,
+            position
+        });
+        return response.data;
+    }
+};
+
+// Search API
 export const search = {
     query: async (q: string) => {
         const response = await api.get(`/search?q=${encodeURIComponent(q)}`);

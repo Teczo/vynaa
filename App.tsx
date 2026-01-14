@@ -1,14 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { NodeData, CanvasState, Conversation, Project } from './types';
-import { askVynaa, detectAudioIntent } from './services/geminiService';
+import { NodeData, CanvasState } from './types';
 import BubbleNode from './components/BubbleNode';
 import Connection from './components/Connection';
 import ProjectSidebar from './src/components/ProjectSidebar';
-import { useAutosave } from './src/hooks/useAutosave';
 import { useUndo } from './src/hooks/useUndo';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
-import { projects as projectApi, conversations as conversationApi } from './src/services/api';
+import { sessions, turns } from './src/services/api';
+import { turnsToNodes } from './src/utils/turnConverter';
 
 // Pages
 import Login from './src/pages/auth/Login';
@@ -29,7 +28,7 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
 
   // State
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const {
     state: nodes,
     setState: setNodesWithHistory,
@@ -42,42 +41,35 @@ const Dashboard: React.FC = () => {
   } = useUndo<NodeData[]>([]);
 
   const [canvas, setCanvas] = useState<CanvasState>({ scale: 1, offset: { x: 0, y: 0 } });
-
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [activeConversationTitle, setActiveConversationTitle] = useState<string>('Canvas');
-
-  // Autosave
-  const { saving, lastSynced } = useAutosave(
-    activeConversationId,
-    { nodes, viewport: canvas },
-    2000
-  );
+  const [activeSessionTitle, setActiveSessionTitle] = useState<string>('Canvas');
+  const [isSaving, setIsSaving] = useState(false);
 
   const dragRef = useRef<{ id: string; startX: number; startY: number; initialNodeX: number; initialNodeY: number } | null>(null);
   const isPanning = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
-  // Load Conversation Data
+  // Load Session Data
   useEffect(() => {
-    if (activeConversationId) {
-      loadConversation(activeConversationId);
+    if (activeSessionId) {
+      loadSession(activeSessionId);
     }
-  }, [activeConversationId]);
+  }, [activeSessionId]);
 
-  // Auto-create default canvas if user has no conversations
+  // Auto-create default canvas if user has no sessions
   useEffect(() => {
     const initializeCanvas = async () => {
-      if (activeConversationId) return; // Already have a conversation
+      if (activeSessionId) return;
 
       try {
-        // Check if user has any projects (as a proxy for having data)
-        const projectsList = await projectApi.list();
-
-        // If no projects and no active conversation, create a default canvas
-        if (projectsList.length === 0) {
-          const defaultConvo = await conversationApi.create('Welcome', null);
-          setActiveConversationId(defaultConvo._id);
+        const sessionsList = await sessions.list();
+        if (sessionsList.length === 0) {
+          const defaultSession = await sessions.create('Welcome');
+          setActiveSessionId(defaultSession._id);
+        } else {
+          // Load most recent session
+          setActiveSessionId(sessionsList[0]._id);
         }
       } catch (error) {
         console.error('Failed to initialize canvas:', error);
@@ -87,59 +79,40 @@ const Dashboard: React.FC = () => {
     initializeCanvas();
   }, []);
 
-  const loadConversation = async (id: string) => {
+  const loadSession = async (id: string) => {
     try {
-      const convo = await conversationApi.get(id);
-      let nodesToLoad = convo.nodes || [];
-
-      // If no nodes exist, create initial root node with input bubble
-      if (nodesToLoad.length === 0) {
-        const rootNode: NodeData = {
-          id: 'root',
-          parentId: null,
-          type: 'root',
-          content: '',
-          suggestions: [],
-          position: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
-          velocity: { x: 0, y: 0 },
-          timestamp: Date.now(),
-        };
-        nodesToLoad = [rootNode];
-      }
-
-      resetNodes(nodesToLoad);
-      if (convo.viewport) {
-        setCanvas({
-          scale: convo.viewport.zoom || 1,
-          offset: { x: convo.viewport.x || 0, y: convo.viewport.y || 0 }
-        });
-      }
-      setActiveConversationTitle(convo.title);
+      const data = await sessions.get(id);
+      const convertedNodes = turnsToNodes(data.turns);
+      resetNodes(convertedNodes);
+      setActiveSessionTitle(data.session.title);
     } catch (err) {
-      console.error("Failed to load conversation", err);
+      console.error("Failed to load session", err);
     }
   };
 
-  const handleSelectConversation = (id: string) => {
-    setActiveConversationId(id);
+  const handleSelectSession = (id: string) => {
+    setActiveSessionId(id);
   };
 
-  // Physics Loop (Same as before)
+  // Physics Loop
   useEffect(() => {
     let frameId: number;
     const physicsLoop = () => {
       setNodesWithoutHistory(prevNodes => {
         let changed = false;
         const newNodes = prevNodes.map(node => {
-          if (node.isDragging) return node;
+          if (node.isDragging || node.id === 'root') return node;
+
           let fx = 0, fy = 0;
           const minDistance = 500;
+
           prevNodes.forEach(other => {
             if (other.id === node.id) return;
             const dx = node.position.x - other.position.x;
             const dy = node.position.y - other.position.y;
             const distSq = dx * dx + dy * dy;
             const dist = Math.sqrt(distSq) || 1;
+
             if (dist < minDistance) {
               const force = (minDistance - dist) * 0.4;
               fx += (dx / dist) * force;
@@ -147,12 +120,15 @@ const Dashboard: React.FC = () => {
               changed = true;
             }
           });
+
           if (Math.abs(fx) < 0.05 && Math.abs(fy) < 0.05) return node;
+
           return {
             ...node,
             position: { x: node.position.x + fx * 0.1, y: node.position.y + fy * 0.1 }
           };
         });
+
         return changed ? newNodes : prevNodes;
       });
       frameId = requestAnimationFrame(physicsLoop);
@@ -161,7 +137,7 @@ const Dashboard: React.FC = () => {
     return () => cancelAnimationFrame(frameId);
   }, [setNodesWithoutHistory]);
 
-  // Interaction Handlers (Same as before mostly)
+  // Interaction Handlers
   const handleDragStart = (id: string, clientX: number, clientY: number) => {
     const node = nodes.find(n => n.id === id);
     if (node) {
@@ -209,25 +185,20 @@ const Dashboard: React.FC = () => {
   };
 
   const handleAsk = useCallback(async (question: string, parentId: string) => {
+    if (!activeSessionId) return;
+
     const parentNode = nodes.find(n => n.id === parentId);
     if (!parentNode) return;
 
-    // Auto-rename if needed - Skipping for now or implementing via API
-    if (activeConversationTitle === 'New Canvas' && parentId === 'root' && activeConversationId) {
-      const newTitle = question.length > 30 ? question.substring(0, 30) + '...' : question;
-      setActiveConversationTitle(newTitle);
-      conversationApi.update(activeConversationId, { title: newTitle }); // Async update
-    }
-
-    const { isExplicit, duration } = detectAudioIntent(question);
     const angle = Math.random() * Math.PI * 2;
     const distance = 550;
     const newX = parentNode.position.x + Math.cos(angle) * distance;
     const newY = parentNode.position.y + Math.sin(angle) * distance;
 
-    const userNodeId = `user-${Date.now()}`;
-    const userNode: NodeData = {
-      id: userNodeId,
+    // Optimistically add user node
+    const tempUserNodeId = `temp-user-${Date.now()}`;
+    const tempUserNode: NodeData = {
+      id: tempUserNodeId,
       parentId: parentId,
       type: 'user',
       content: question,
@@ -237,47 +208,64 @@ const Dashboard: React.FC = () => {
       timestamp: Date.now(),
     };
 
-    setNodesWithHistory(prev => [...prev, userNode]);
-    setIsLoading(userNodeId);
+    setNodesWithHistory(prev => [...prev, tempUserNode]);
+    setIsLoading(tempUserNodeId);
 
-    const result = await askVynaa(question, nodes.slice(-6).map(n => n.content).join('\n'), isExplicit);
+    try {
+      // Call API
+      const response = await turns.create(activeSessionId, question, { x: newX, y: newY });
 
-    const aiNodeId = `ai-${Date.now()}`;
-    const aiNode: NodeData = {
-      id: aiNodeId,
-      parentId: userNodeId,
-      type: 'ai',
-      content: result.answer,
-      suggestions: result.followUpQuestions.map((q, i) => ({ id: `sug-${aiNodeId}-${i}`, text: q })),
-      position: { x: newX + (Math.random() - 0.5) * 150, y: newY + 300 },
-      velocity: { x: 0, y: 0 },
-      audio: {
-        hasAudio: !!result.audioBase64 || isExplicit,
-        autoPlay: isExplicit,
-        base64Data: result.audioBase64,
-        isPlaying: false,
-        durationRequested: duration
-      },
-      timestamp: Date.now(),
-    };
+      // Replace temp node with real user turn
+      const userNode: NodeData = {
+        id: response.userTurn._id,
+        parentId: parentId,
+        type: 'user',
+        content: response.userTurn.content,
+        suggestions: [],
+        position: response.userTurn.metadata.position,
+        velocity: response.userTurn.metadata.velocity,
+        timestamp: new Date(response.userTurn.createdAt).getTime(),
+      };
 
-    setNodesWithHistory(prev => [...prev, aiNode]);
-    setIsLoading(null);
-  }, [nodes, activeConversationId, activeConversationTitle, setNodesWithHistory]);
+      // Add AI node
+      const aiNode: NodeData = {
+        id: response.assistantTurn._id,
+        parentId: response.userTurn._id,
+        type: 'ai',
+        content: response.assistantTurn.content,
+        suggestions: response.assistantTurn.metadata.suggestions || [],
+        position: response.assistantTurn.metadata.position,
+        velocity: response.assistantTurn.metadata.velocity,
+        audio: response.assistantTurn.metadata.audio,
+        timestamp: new Date(response.assistantTurn.createdAt).getTime(),
+      };
 
+      setNodesWithHistory(prev => [
+        ...prev.filter(n => n.id !== tempUserNodeId),
+        userNode,
+        aiNode
+      ]);
+
+    } catch (error) {
+      console.error('Failed to ask question:', error);
+      // Remove temp node on error
+      setNodesWithHistory(prev => prev.filter(n => n.id !== tempUserNodeId));
+      alert('Failed to get response. Please try again.');
+    } finally {
+      setIsLoading(null);
+    }
+  }, [nodes, activeSessionId, setNodesWithHistory]);
   const handleProfileClick = () => {
     navigate('/profile');
   };
-
   return (
     <div className="flex w-full h-screen bg-[#020617] text-white">
       <ProjectSidebar
-        activeConversationId={activeConversationId || undefined}
-        onSelectConversation={handleSelectConversation}
+        activeConversationId={activeSessionId || undefined}
+        onSelectConversation={handleSelectSession}
       />
-
       <div className="fixed top-4 right-4 z-50 flex gap-4">
-        {saving && <span className="text-xs text-gray-400 self-center">Saving...</span>}
+        {isSaving && <span className="text-xs text-gray-400 self-center">Saving...</span>}
         <button
           onClick={handleProfileClick}
           className="bg-slate-800/80 hover:bg-slate-700/80 text-white px-3 py-1.5 rounded-lg border border-white/10 text-xs font-bold uppercase tracking-wider transition-all"
@@ -345,8 +333,6 @@ const Dashboard: React.FC = () => {
           <button onClick={redo} disabled={!canRedo} className={`p-2 rounded-xl text-white transition-all ${!canRedo ? 'opacity-30' : 'hover:bg-white/10'}`}>
             <span className="text-xl">↪</span>
           </button>
-          <div className="w-px h-6 bg-white/20"></div>
-          <button onClick={() => { if (confirm('Clear canvas?')) setNodesWithHistory([]); }} className="px-3 py-1 hover:bg-red-500/20 text-red-400 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all">Clear</button>
         </div>
 
         <div className="fixed top-10 right-10 text-right pointer-events-none opacity-20">
@@ -357,7 +343,6 @@ const Dashboard: React.FC = () => {
     </div>
   );
 };
-
 const App: React.FC = () => {
   return (
     <Router>
@@ -373,5 +358,4 @@ const App: React.FC = () => {
     </Router>
   );
 };
-
 export default App;
