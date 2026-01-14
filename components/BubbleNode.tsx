@@ -1,7 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { NodeData } from '../types';
-import { decodeBase64, pcmToWavBlob, generateTTS } from '../services/geminiService';
 
 interface BubbleNodeProps {
   node: NodeData;
@@ -10,6 +8,48 @@ interface BubbleNodeProps {
   onHover: (id: string | null) => void;
   isRoot?: boolean;
   isLoading?: boolean;
+}
+
+// Helper functions for audio (keep these in frontend)
+function decodeBase64(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function pcmToWavBlob(pcmData: Uint8Array, sampleRate: number = 24000): Blob {
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+
+  const writeString = (offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + pcmData.length, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // Byte rate
+  view.setUint16(32, 2, true); // Block align
+  view.setUint16(34, 16, true); // Bits per sample
+  writeString(36, 'data');
+  view.setUint32(40, pcmData.length, true);
+
+  // Combine header and PCM data into a single Uint8Array
+  const wavData = new Uint8Array(44 + pcmData.length);
+  wavData.set(new Uint8Array(header), 0);
+  wavData.set(pcmData, 44);
+
+  return new Blob([wavData.buffer], { type: 'audio/wav' });
 }
 
 const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHover, isRoot, isLoading }) => {
@@ -25,7 +65,7 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHov
       const bytes = decodeBase64(localAudioData);
       const blob = pcmToWavBlob(bytes);
       const url = URL.createObjectURL(blob);
-      
+
       const audio = new Audio(url);
       audio.onplay = () => setIsPlaying(true);
       audio.onpause = () => setIsPlaying(false);
@@ -45,15 +85,33 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHov
 
   const togglePlay = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    // If we don't have audio data yet, fetch it on-demand
+
+    // If we don't have audio data yet, generate it on-demand via API
     if (!localAudioData && !isFetchingAudio && node.content) {
       setIsFetchingAudio(true);
-      const base64 = await generateTTS(node.content);
-      setIsFetchingAudio(false);
-      if (base64) {
-        setLocalAudioData(base64);
-        return; // The useEffect will handle playback once state updates
+
+      try {
+        // Call backend API to generate TTS
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/tts/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+          },
+          body: JSON.stringify({ text: node.content })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.audioBase64) {
+            setLocalAudioData(data.audioBase64);
+            return; // The useEffect will handle playback once state updates
+          }
+        }
+      } catch (error) {
+        console.error('Failed to generate TTS:', error);
+      } finally {
+        setIsFetchingAudio(false);
       }
     }
 
@@ -113,7 +171,7 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHov
       onMouseLeave={() => onHover(null)}
       className="group flex flex-col items-center select-none"
     >
-      <div 
+      <div
         className={`
           relative transition-all duration-300
           ${getStyle()}
@@ -122,10 +180,10 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHov
           hover:border-indigo-400
         `}
       >
-        {/* Audio Interface - Now more visible and functional */}
+        {/* Audio Interface */}
         {!isRoot && (
           <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-800 border border-indigo-500/50 p-1.5 rounded-full shadow-2xl opacity-80 group-hover:opacity-100 transition-all z-50">
-            <button 
+            <button
               onClick={togglePlay}
               disabled={isFetchingAudio}
               className={`p-2.5 rounded-full transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-transparent text-indigo-300 hover:text-white'}`}
@@ -134,30 +192,30 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHov
               {isFetchingAudio ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
               ) : isPlaying ? (
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
               ) : (
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" /></svg>
               )}
             </button>
             {localAudioData && (
               <>
-                <button 
+                <button
                   onClick={replay}
                   className="p-2.5 rounded-full bg-transparent text-slate-400 hover:text-white transition-all"
                   title="Replay"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 </button>
                 <div className="w-px h-4 bg-white/10 mx-1"></div>
-                <button 
+                <button
                   onClick={toggleMute}
                   className={`p-2.5 rounded-full transition-all ${isMuted ? 'text-red-400' : 'text-slate-400 hover:text-white'}`}
                   title={isMuted ? "Unmute" : "Mute"}
                 >
                   {isMuted ? (
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.38.27-.81.48-1.25.61v2.04c1-.22 1.94-.66 2.75-1.27L19.73 21 21 19.73 4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.38.27-.81.48-1.25.61v2.04c1-.22 1.94-.66 2.75-1.27L19.73 21 21 19.73 4.27 3zM12 4L9.91 6.09 12 8.18V4z" /></svg>
                   ) : (
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" /></svg>
                   )}
                 </button>
               </>

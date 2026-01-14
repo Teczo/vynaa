@@ -6,13 +6,13 @@ import { generateAIResponse } from '../services/aiService';
 const router = express.Router();
 
 // POST /api/sessions/:sessionId/turns - Add new turn and get AI response
+// POST /api/sessions/:sessionId/turns
 router.post('/:sessionId/turns', async (req: any, res) => {
     try {
         const { sessionId } = req.params;
         const userId = req.user?.id;
         const { content, position } = req.body;
 
-        // Verify session ownership
         const session = await ChatSession.findOne({
             _id: sessionId,
             ownerUserId: userId,
@@ -23,12 +23,11 @@ router.post('/:sessionId/turns', async (req: any, res) => {
             return res.status(404).json({ error: 'Session not found' });
         }
 
-        // Atomically allocate turnIndex for user turn
+        // Create user turn
         const userTurnIndex = session.nextTurnIndex;
         session.nextTurnIndex += 1;
         await session.save();
 
-        // Create user turn
         const userTurn = await Turn.create({
             sessionId,
             projectId: session.projectId,
@@ -41,21 +40,34 @@ router.post('/:sessionId/turns', async (req: any, res) => {
             }
         });
 
-        // Generate AI response
-        const aiResponse = await generateAIResponse(sessionId, content);
+        // Generate AI response with error handling
+        let aiResponse;
+        try {
+            aiResponse = await generateAIResponse(sessionId, content);
+        } catch (aiError) {
+            console.error('AI generation failed:', aiError);
 
-        // Allocate turnIndex for assistant turn
+            // Create error response
+            aiResponse = {
+                answer: "I'm having trouble processing that request right now. Please try again.",
+                suggestions: [
+                    { id: `sug-error-1`, text: "Try rephrasing your question" },
+                    { id: `sug-error-2`, text: "Ask something else" }
+                ],
+                audio: undefined
+            };
+        }
+
+        // Create assistant turn
         const assistantTurnIndex = session.nextTurnIndex;
         session.nextTurnIndex += 1;
 
-        // Update title if it's the first turn
         if (userTurnIndex === 0 && session.title === 'New Canvas') {
             session.title = content.length > 50 ? content.substring(0, 50) + '...' : content;
         }
 
         await session.save();
 
-        // Create assistant turn
         const assistantTurn = await Turn.create({
             sessionId,
             projectId: session.projectId,

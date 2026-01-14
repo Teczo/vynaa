@@ -44,7 +44,7 @@ const Dashboard: React.FC = () => {
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [activeSessionTitle, setActiveSessionTitle] = useState<string>('Canvas');
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSessionLoading, setIsSessionLoading] = useState(false); // NEW: For session loading state
 
   const dragRef = useRef<{ id: string; startX: number; startY: number; initialNodeX: number; initialNodeY: number } | null>(null);
   const isPanning = useRef(false);
@@ -63,7 +63,9 @@ const Dashboard: React.FC = () => {
       if (activeSessionId) return;
 
       try {
+        setIsSessionLoading(true); // NEW
         const sessionsList = await sessions.list();
+
         if (sessionsList.length === 0) {
           const defaultSession = await sessions.create('Welcome');
           setActiveSessionId(defaultSession._id);
@@ -73,20 +75,29 @@ const Dashboard: React.FC = () => {
         }
       } catch (error) {
         console.error('Failed to initialize canvas:', error);
+        alert('Failed to load. Please refresh the page.');
+      } finally {
+        setIsSessionLoading(false); // NEW
       }
     };
 
     initializeCanvas();
-  }, []);
+  }, [activeSessionId]);
 
+  // UPDATED: Load session with loading states
   const loadSession = async (id: string) => {
     try {
+      setIsSessionLoading(true); // Show loading indicator
       const data = await sessions.get(id);
       const convertedNodes = turnsToNodes(data.turns);
       resetNodes(convertedNodes);
       setActiveSessionTitle(data.session.title);
     } catch (err) {
       console.error("Failed to load session", err);
+      alert('Failed to load session. Please try again.');
+      // Optionally: redirect to home or retry
+    } finally {
+      setIsSessionLoading(false); // Hide loading indicator
     }
   };
 
@@ -255,17 +266,31 @@ const Dashboard: React.FC = () => {
       setIsLoading(null);
     }
   }, [nodes, activeSessionId, setNodesWithHistory]);
+
   const handleProfileClick = () => {
     navigate('/profile');
   };
+
+  // NEW: Show loading overlay when session is loading
+  if (isSessionLoading) {
+    return (
+      <div className="flex w-full h-screen bg-[#020617] text-white items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading canvas...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full h-screen bg-[#020617] text-white">
       <ProjectSidebar
         activeConversationId={activeSessionId || undefined}
         onSelectConversation={handleSelectSession}
       />
+
       <div className="fixed top-4 right-4 z-50 flex gap-4">
-        {isSaving && <span className="text-xs text-gray-400 self-center">Saving...</span>}
         <button
           onClick={handleProfileClick}
           className="bg-slate-800/80 hover:bg-slate-700/80 text-white px-3 py-1.5 rounded-lg border border-white/10 text-xs font-bold uppercase tracking-wider transition-all"
@@ -324,8 +349,12 @@ const Dashboard: React.FC = () => {
 
         {/* Global Controls Overlay */}
         <div className="fixed bottom-10 right-10 flex items-center gap-4 bg-slate-900/60 backdrop-blur-3xl border border-white/10 px-6 py-3 rounded-2xl shadow-2xl">
-          <button onClick={() => setCanvas(p => ({ ...p, scale: Math.min(p.scale + 0.2, 4) }))} className="p-2 hover:bg-white/10 rounded-xl text-white transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg></button>
-          <button onClick={() => setCanvas(p => ({ ...p, scale: Math.max(p.scale - 0.2, 0.05) }))} className="p-2 hover:bg-white/10 rounded-xl text-white transition-all"><svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M20 12H4" /></svg></button>
+          <button onClick={() => setCanvas(p => ({ ...p, scale: Math.min(p.scale + 0.2, 4) }))} className="p-2 hover:bg-white/10 rounded-xl text-white transition-all">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" /></svg>
+          </button>
+          <button onClick={() => setCanvas(p => ({ ...p, scale: Math.max(p.scale - 0.2, 0.05) }))} className="p-2 hover:bg-white/10 rounded-xl text-white transition-all">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M20 12H4" /></svg>
+          </button>
           <div className="w-px h-6 bg-white/20"></div>
           <button onClick={undo} disabled={!canUndo} className={`p-2 rounded-xl text-white transition-all ${!canUndo ? 'opacity-30' : 'hover:bg-white/10'}`}>
             <span className="text-xl">↩</span>
@@ -343,6 +372,7 @@ const Dashboard: React.FC = () => {
     </div>
   );
 };
+
 const App: React.FC = () => {
   return (
     <Router>
@@ -358,4 +388,5 @@ const App: React.FC = () => {
     </Router>
   );
 };
+
 export default App;

@@ -1,7 +1,6 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export interface VynaaResponse {
   answer: string;
@@ -44,7 +43,7 @@ export async function generateTTS(text: string): Promise<string> {
 
 export async function askVynaa(question: string, context: string = '', audioRequested: boolean = false): Promise<VynaaResponse> {
   const modelName = audioRequested ? 'gemini-2.5-flash-preview-tts' : 'gemini-3-flash-preview';
-  
+
   const systemInstruction = `You are Vynaa AI. 
   1. Provide a concise, insightful answer.
   2. If a duration was requested (e.g., 'for 5 minutes'), structure your answer to be detailed enough for that timeframe.
@@ -58,9 +57,9 @@ export async function askVynaa(question: string, context: string = '', audioRequ
       type: Type.OBJECT,
       properties: {
         answer: { type: Type.STRING },
-        followUpQuestions: { 
-          type: Type.ARRAY, 
-          items: { type: Type.STRING } 
+        followUpQuestions: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
         },
       },
       required: ["answer", "followUpQuestions"],
@@ -105,40 +104,4 @@ export async function askVynaa(question: string, context: string = '', audioRequ
       audioIntent: false
     };
   }
-}
-
-export function decodeBase64(base64: string) {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-export function pcmToWavBlob(pcmData: Uint8Array, sampleRate: number = 24000): Blob {
-  const header = new ArrayBuffer(44);
-  const view = new DataView(header);
-  
-  const writeString = (offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i));
-    }
-  };
-
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + pcmData.length, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, 1, true); // Mono
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // Byte rate
-  view.setUint16(32, 2, true); // Block align
-  view.setUint16(34, 16, true); // Bits per sample
-  writeString(36, 'data');
-  view.setUint32(40, pcmData.length, true);
-
-  return new Blob([header, pcmData], { type: 'audio/wav' });
 }

@@ -1,4 +1,4 @@
-import { askVynaa, detectAudioIntent } from '../../services/geminiService';
+import { askVynaa, detectAudioIntent } from './geminiService';
 import Turn from '../models/Turn';
 
 export async function generateAIResponse(sessionId: string, userQuestion: string) {
