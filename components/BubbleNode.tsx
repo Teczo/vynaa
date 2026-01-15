@@ -56,87 +56,58 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHov
   const [inputValue, setInputValue] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [isFetchingAudio, setIsFetchingAudio] = useState(false);
-  const [localAudioData, setLocalAudioData] = useState<string | undefined>(node.audio?.base64Data);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    if (localAudioData) {
-      const bytes = decodeBase64(localAudioData);
-      const blob = pcmToWavBlob(bytes);
-      const url = URL.createObjectURL(blob);
+  // Clean up unused audio refs/state
+  // const [isFetchingAudio, setIsFetchingAudio] = useState(false);
+  // const [localAudioData, setLocalAudioData] = useState<string | undefined>(node.audio?.base64Data);
+  // const audioRef = useRef<HTMLAudioElement | null>(null);
 
-      const audio = new Audio(url);
-      audio.onplay = () => setIsPlaying(true);
-      audio.onpause = () => setIsPlaying(false);
-      audio.onended = () => setIsPlaying(false);
-      audioRef.current = audio;
 
-      if (node.audio?.autoPlay) {
-        audio.play().catch(e => console.warn("Autoplay blocked", e));
-      }
 
-      return () => {
-        audio.pause();
-        URL.revokeObjectURL(url);
-      };
-    }
-  }, [localAudioData]);
-
-  const togglePlay = async (e: React.MouseEvent) => {
+  // Browser TTS Logic
+  const togglePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // If we don't have audio data yet, generate it on-demand via API
-    if (!localAudioData && !isFetchingAudio && node.content) {
-      setIsFetchingAudio(true);
-
-      try {
-        // Call backend API to generate TTS
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/tts/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-          },
-          body: JSON.stringify({ text: node.content })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.audioBase64) {
-            setLocalAudioData(data.audioBase64);
-            return; // The useEffect will handle playback once state updates
-          }
-        }
-      } catch (error) {
-        console.error('Failed to generate TTS:', error);
-      } finally {
-        setIsFetchingAudio(false);
-      }
-    }
-
-    if (!audioRef.current) return;
     if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
+      return;
     }
+
+    if (!node.content) return;
+
+    const utterance = new SpeechSynthesisUtterance(node.content);
+
+    // Select a good voice
+    const voices = window.speechSynthesis.getVoices();
+    // Prefer Google US English, then any US English, then default
+    const preferredVoice = voices.find(v => v.name === 'Google US English') ||
+      voices.find(v => v.lang === 'en-US') ||
+      voices[0];
+
+    if (preferredVoice) utterance.voice = preferredVoice;
+
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => setIsPlaying(true);
+    utterance.onend = () => setIsPlaying(false);
+    utterance.onerror = (err) => {
+      console.error('TTS Error:', err);
+      setIsPlaying(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
   };
 
-  const replay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = 0;
-    audioRef.current.play();
-  };
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
 
-  const toggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!audioRef.current) return;
-    const nextMuted = !isMuted;
-    audioRef.current.muted = nextMuted;
-    setIsMuted(nextMuted);
-  };
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,41 +156,15 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({ node, onAsk, onDragStart, onHov
           <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-800 border border-indigo-500/50 p-1.5 rounded-full shadow-2xl opacity-80 group-hover:opacity-100 transition-all z-50">
             <button
               onClick={togglePlay}
-              disabled={isFetchingAudio}
               className={`p-2.5 rounded-full transition-all ${isPlaying ? 'bg-indigo-500 text-white' : 'bg-transparent text-indigo-300 hover:text-white'}`}
-              title={isPlaying ? "Pause" : "Play Narration"}
+              title={isPlaying ? "Stop" : "Read Aloud"}
             >
-              {isFetchingAudio ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              ) : isPlaying ? (
+              {isPlaying ? (
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
               ) : (
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" /></svg>
               )}
             </button>
-            {localAudioData && (
-              <>
-                <button
-                  onClick={replay}
-                  className="p-2.5 rounded-full bg-transparent text-slate-400 hover:text-white transition-all"
-                  title="Replay"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                </button>
-                <div className="w-px h-4 bg-white/10 mx-1"></div>
-                <button
-                  onClick={toggleMute}
-                  className={`p-2.5 rounded-full transition-all ${isMuted ? 'text-red-400' : 'text-slate-400 hover:text-white'}`}
-                  title={isMuted ? "Unmute" : "Mute"}
-                >
-                  {isMuted ? (
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.38.27-.81.48-1.25.61v2.04c1-.22 1.94-.66 2.75-1.27L19.73 21 21 19.73 4.27 3zM12 4L9.91 6.09 12 8.18V4z" /></svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" /></svg>
-                  )}
-                </button>
-              </>
-            )}
           </div>
         )}
 

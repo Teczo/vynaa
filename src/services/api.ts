@@ -126,9 +126,18 @@ export const turns = {
 };
 
 // Search API
+// Search API
 export const search = {
     query: async (q: string) => {
         const response = await api.get(`/search?q=${encodeURIComponent(q)}`);
+        return response.data;
+    }
+};
+
+// TTS API
+export const tts = {
+    generate: async (text: string) => {
+        const response = await api.post('/tts/generate', { text });
         return response.data;
     }
 };

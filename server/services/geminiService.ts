@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '', apiVersion: 'v1beta' });
 
 export interface VynaaResponse {
   answer: string;
@@ -24,7 +24,7 @@ export function detectAudioIntent(prompt: string) {
 export async function generateTTS(text: string): Promise<string> {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-1.5-pro",
       contents: [{ parts: [{ text: `Read this aloud clearly: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
