@@ -41,6 +41,8 @@ const CanvasStage: React.FC<Props> = ({
     onAsk,
     onDragStartNode,
 }) => {
+    const worldTransform = `translate(${canvas.offset.x}px, ${canvas.offset.y}px) scale(${canvas.scale})`;
+
     return (
         <main
             ref={mainRef}
@@ -62,11 +64,11 @@ const CanvasStage: React.FC<Props> = ({
                 <div className="absolute inset-0 dark:bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.06),transparent_55%)]" />
             </div>
 
-            {/* World layer */}
+            {/* Connections layer (clipped, transformed) */}
             <div
                 className="absolute inset-0 will-change-transform"
                 style={{
-                    transform: `translate(${canvas.offset.x}px, ${canvas.offset.y}px) scale(${canvas.scale})`,
+                    transform: worldTransform,
                     transformOrigin: '0 0',
                 }}
             >
@@ -79,7 +81,16 @@ const CanvasStage: React.FC<Props> = ({
                         return <Connection key={node.id} parent={parent} child={node} isHighlighted={isHighlighted} />;
                     })}
                 </svg>
+            </div>
 
+            {/* Nodes layer (overflow-visible to prevent clipping) */}
+            <div
+                className="absolute inset-0 will-change-transform overflow-visible"
+                style={{
+                    transform: worldTransform,
+                    transformOrigin: '0 0',
+                }}
+            >
                 {nodes.map((node) => (
                     <BubbleNode
                         key={node.id}

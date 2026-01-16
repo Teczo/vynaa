@@ -276,9 +276,16 @@ const DashboardPage: React.FC = () => {
             const id = dragRef.current.id;
             dragRef.current = null;
 
-            setNodesWithHistory((prev) =>
-                prev.map((n) => (n.id === id ? { ...n, isDragging: false } : n))
-            );
+            setNodesWithHistory((prev) => {
+                const node = prev.find((n) => n.id === id);
+                // Save to backend if it's a real node and we have a session
+                if (node && activeSessionId && !id.startsWith('temp-') && id !== 'root') {
+                    turns.updatePosition(activeSessionId, id, node.position)
+                        .catch(err => console.error('Failed to save position:', err));
+                }
+
+                return prev.map((n) => (n.id === id ? { ...n, isDragging: false } : n));
+            });
             setGlobalDraggingMode(false);
         }
     };

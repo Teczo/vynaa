@@ -81,8 +81,8 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
   const isRootNode = isRoot || node.type === 'root';
 
   const containerBg = isRootNode
-    ? 'bg-white text-zinc-900'
-    : 'bg-white/80 text-zinc-900 border border-black/10 dark:bg-[#0c0c0e] dark:text-zinc-100 dark:border-white/10';
+    ? 'bg-white text-zinc-900 shadow-2xl shadow-indigo-500/10'
+    : 'bg-white/90 backdrop-blur-xl text-zinc-900 border border-zinc-200/50 shadow-xl shadow-zinc-200/50 dark:bg-[#232325] dark:text-zinc-100 dark:border-white/5 dark:shadow-black/20';
 
   return (
     <motion.div
@@ -97,6 +97,7 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
         top: node.position.y,
         transform: 'translate(-50%, -50%)',
         zIndex: node.isDragging ? 100 : 10,
+        width: isRootNode ? 'auto' : undefined, // Allow root to size itself
       }}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -104,26 +105,33 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
     >
       <div
         className={[
-          'relative transition-all duration-300 shadow-2xl',
+          'relative transition-all duration-300',
           containerBg,
-          isRootNode ? 'w-72 h-72 rounded-full flex items-center justify-center p-8' : 'max-w-md rounded-[28px] p-8',
+          isRootNode
+            ? 'w-80 h-80 rounded-full flex items-center justify-center p-10 ring-1 ring-black/5 dark:ring-white/10'
+            : 'min-w-[200px] max-w-[480px] rounded-[32px] p-7', // Fixed width constraints
           node.isDragging ? 'cursor-grabbing scale-[1.02]' : 'cursor-grab',
         ].join(' ')}
       >
         {isRootNode ? (
-          <div className="text-center space-y-5 w-full">
-            <div>
-              <h1 className="text-3xl font-black tracking-tighter">VYNAA</h1>
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-600">
+          <div className="text-center space-y-6 w-full flex flex-col items-center">
+            <div className="relative">
+              <div className="absolute -inset-4 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 blur-xl opacity-50 rounded-full" />
+              <h1 className="relative text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-zinc-900 to-zinc-500 dark:from-white dark:to-zinc-500">
+                VYNAA
+              </h1>
+              <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-zinc-400 mt-2">
                 Studio AI
               </p>
             </div>
-            <form onSubmit={handleSubmit} className="w-full">
+
+            <form onSubmit={handleSubmit} className="w-full relative group/input">
+              <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-2xl opacity-0 group-focus-within/input:opacity-100 blur transition-opacity duration-500 -z-10" />
               <input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Ask anything..."
-                className="w-full bg-white border border-black/10 rounded-2xl py-3 px-4 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-black/10 dark:bg-black/20 dark:border-white/10 dark:text-zinc-100 dark:placeholder-zinc-500"
+                placeholder="Start imagining..."
+                className="w-full bg-white/50 backdrop-blur-md border border-zinc-200/80 rounded-2xl py-3.5 px-5 text-sm font-medium text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-0 focus:bg-white transition-all dark:bg-black/20 dark:border-white/10 dark:text-zinc-100 dark:placeholder-zinc-600 dark:focus:bg-black/30 text-center"
               />
             </form>
           </div>
@@ -132,27 +140,30 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
                 {node.type === 'ai' ? (
-                  <Sparkles size={14} className="text-zinc-500 dark:text-zinc-400" />
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <Sparkles size={10} className="text-white" />
+                  </div>
                 ) : (
-                  <MessageSquare size={14} className="text-zinc-500 dark:text-zinc-600" />
+                  <div className="w-5 h-5 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                    <MessageSquare size={10} className="text-zinc-500 dark:text-zinc-400" />
+                  </div>
                 )}
-                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600 dark:text-zinc-500">
-                  {node.type === 'ai' ? 'Intelligence' : 'User Query'}
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  {node.type === 'ai' ? 'Intelligence' : 'Query'}
                 </span>
               </div>
 
               <button
                 type="button"
                 onClick={togglePlay}
-                className="p-2 rounded-full bg-black/5 hover:bg-black/10 text-zinc-700 hover:text-zinc-900 dark:bg-white/5 dark:hover:bg-white/10 dark:text-zinc-400 dark:hover:text-white transition-all"
+                className="p-2 rounded-full hover:bg-black/5 text-zinc-400 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white transition-all"
                 aria-label={isPlaying ? 'Stop playback' : 'Play'}
-                title={isPlaying ? 'Stop' : 'Read aloud'}
               >
                 {isPlaying ? <Square size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
               </button>
             </div>
 
-            <p className="text-[17px] leading-[1.6] font-medium tracking-tight whitespace-pre-wrap text-zinc-900 dark:text-zinc-100">
+            <p className="text-[17px] leading-[1.6] font-medium tracking-tight whitespace-pre-wrap text-zinc-800 dark:text-zinc-200">
               {node.content}
             </p>
 
@@ -163,7 +174,7 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
                     key={i}
                     animate={{ opacity: [0.3, 1, 0.3] }}
                     transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                    className="w-1.5 h-1.5 bg-zinc-500 rounded-full"
+                    className="w-1.5 h-1.5 bg-zinc-400 rounded-full"
                   />
                 ))}
               </div>

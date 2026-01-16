@@ -121,4 +121,43 @@ router.get('/:sessionId/turns', async (req: any, res) => {
     }
 });
 
+// PATCH /api/sessions/:sessionId/turns/:turnId/position - Update turn position
+router.patch('/:sessionId/turns/:turnId/position', async (req: any, res) => {
+    try {
+        const { sessionId, turnId } = req.params;
+        const userId = req.user?.id;
+        const { position } = req.body; // { x: number, y: number }
+
+        if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') {
+            return res.status(400).json({ error: 'Invalid position format' });
+        }
+
+        // Verify session ownership
+        const session = await ChatSession.findOne({
+            _id: sessionId,
+            ownerUserId: userId
+        });
+
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        // Find and update the turn
+        const turn = await Turn.findOneAndUpdate(
+            { _id: turnId, sessionId },
+            { $set: { 'metadata.position': position } },
+            { new: true }
+        );
+
+        if (!turn) {
+            return res.status(404).json({ error: 'Turn not found' });
+        }
+
+        res.json(turn);
+    } catch (error) {
+        console.error('Error updating turn position:', error);
+        res.status(500).json({ error: 'Failed to update turn position' });
+    }
+});
+
 export default router;

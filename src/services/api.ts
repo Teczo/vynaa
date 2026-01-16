@@ -122,6 +122,13 @@ export const turns = {
             position
         });
         return response.data;
+    },
+
+    updatePosition: async (sessionId: string, turnId: string, position: { x: number; y: number }) => {
+        const response = await api.patch(`/sessions/${sessionId}/turns/${turnId}/position`, {
+            position
+        });
+        return response.data;
     }
 };
 
