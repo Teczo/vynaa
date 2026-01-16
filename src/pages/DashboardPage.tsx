@@ -11,6 +11,8 @@ import { turnsToNodes } from '../utils/turnConverter';
 
 import CanvasStage from '../components/canvas/CanvasStage';
 import OverlayHUD from '../components/overlays/OverlayHUD';
+import { ROOT_WORLD_POSITION } from '../components/BubbleNode';
+
 
 const DashboardPage: React.FC = () => {
     const { user } = useAuth();
@@ -72,14 +74,18 @@ const DashboardPage: React.FC = () => {
 
         const rect = el.getBoundingClientRect();
 
+        const targetX = rect.width * 0.3;   // start view slightly left
+        const targetY = rect.height * 0.35;
+
         setCanvas((prev) => ({
             ...prev,
             offset: {
-                x: rect.width / 2 - root.position.x * prev.scale,
-                y: rect.height / 2 - root.position.y * prev.scale,
+                x: targetX - root.position.x * prev.scale,
+                y: targetY - root.position.y * prev.scale,
             },
         }));
     }, []);
+
 
     // Initialize default session
     useEffect(() => {
@@ -116,9 +122,13 @@ const DashboardPage: React.FC = () => {
             setIsSessionLoading(true);
             const data = await sessions.get(id);
 
-            const nodeList = turnsToNodes(data.turns);
-            resetNodes(nodeList);
+            const nodeList = turnsToNodes(data.turns).map((n) =>
+                n.id === 'root' || n.type === 'root'
+                    ? { ...n, position: ROOT_WORLD_POSITION }
+                    : n
+            );
 
+            resetNodes(nodeList);
             requestAnimationFrame(() => centerOnRoot(nodeList));
         } catch (err) {
             console.error('Failed to load session', err);
@@ -312,6 +322,8 @@ const DashboardPage: React.FC = () => {
     };
 
     const handleDragStart = (id: string, clientX: number, clientY: number, pointerId: number) => {
+        if (id === 'root') return; // 🔒 absolute lock
+
         const node = nodes.find((n) => n.id === id);
         if (!node) return;
 
@@ -326,9 +338,11 @@ const DashboardPage: React.FC = () => {
             pointerId,
         };
 
-        setGlobalDraggingMode(true);
-        setNodesWithoutHistory((prev) => prev.map((n) => (n.id === id ? { ...n, isDragging: true } : n)));
+        setNodesWithoutHistory((prev) =>
+            prev.map((n) => (n.id === id ? { ...n, isDragging: true } : n))
+        );
     };
+
 
     if (isSessionLoading) {
         return (

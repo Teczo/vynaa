@@ -6,57 +6,69 @@ type Props = {
   child: NodeData;
   isHighlighted?: boolean;
 
-  /**
-   * IMPORTANT:
-   * These must match your rendered node dimensions (BubbleNode container).
-   * If your nodes are responsive or variable-height, see note below on measuring DOM.
-   */
   nodeWidth?: number;
   nodeHeight?: number;
 
-  /** Small gap so line doesn't visually touch the node border */
   anchorPadding?: number;
 };
 
-function getCenter(node: NodeData, w: number, h: number) {
+const ROOT_SIZE = { w: 320, h: 320 }; // matches w-80 h-80
+const DEFAULT_SIZE = { w: 280, h: 140 };
+
+function isRoot(node: NodeData) {
+  return node.id === "root" || node.type === "root";
+}
+
+function getNodeSize(node: NodeData) {
+  return isRoot(node) ? ROOT_SIZE : DEFAULT_SIZE;
+}
+
+// node.position is CENTER
+function getCenter(node: NodeData) {
   return {
-    cx: node.position.x + w / 2,
-    cy: node.position.y + h / 2,
+    cx: node.position.x,
+    cy: node.position.y,
   };
 }
 
 function getAnchorPoint(
   from: NodeData,
   to: NodeData,
-  w: number,
-  h: number,
   pad: number
 ) {
-  const { cx: fx, cy: fy } = getCenter(from, w, h);
-  const { cx: tx, cy: ty } = getCenter(to, w, h);
+  const { cx: fx, cy: fy } = getCenter(from);
+  const { cx: tx, cy: ty } = getCenter(to);
+
+  const { w, h } = getNodeSize(from);
 
   const dx = tx - fx;
   const dy = ty - fy;
 
-  // Decide which side to exit based on dominant direction.
-  // If mostly vertical -> top/bottom. If mostly horizontal -> left/right.
+  const halfW = w / 2;
+  const halfH = h / 2;
+
+  // Root prefers horizontal exits (builds to the right)
+  if (isRoot(from)) {
+    return {
+      x: fx + halfW + pad,
+      y: fy,
+    };
+  }
+
+  // Normal directional logic
   if (Math.abs(dy) >= Math.abs(dx)) {
-    // Vertical connection
+    // Vertical
     if (dy >= 0) {
-      // to is below from => exit bottom
-      return { x: fx, y: from.position.y + h + pad };
+      return { x: fx, y: fy + halfH + pad };
     } else {
-      // to is above from => exit top
-      return { x: fx, y: from.position.y - pad };
+      return { x: fx, y: fy - halfH - pad };
     }
   } else {
-    // Horizontal connection
+    // Horizontal
     if (dx >= 0) {
-      // to is right of from => exit right
-      return { x: from.position.x + w + pad, y: fy };
+      return { x: fx + halfW + pad, y: fy };
     } else {
-      // to is left of from => exit left
-      return { x: from.position.x - pad, y: fy };
+      return { x: fx - halfW - pad, y: fy };
     }
   }
 }
@@ -65,36 +77,28 @@ const Connection: React.FC<Props> = ({
   parent,
   child,
   isHighlighted,
-  nodeWidth = 280,   // <-- set these to your actual node size
-  nodeHeight = 140,  // <-- set these to your actual node size
   anchorPadding = 6,
 }) => {
-  // Start at parent edge facing child, end at child edge facing parent
-  const start = getAnchorPoint(parent, child, nodeWidth, nodeHeight, anchorPadding);
-  const end = getAnchorPoint(child, parent, nodeWidth, nodeHeight, anchorPadding);
+  const start = getAnchorPoint(parent, child, anchorPadding);
+  const end = getAnchorPoint(child, parent, anchorPadding);
 
-  const x1 = start.x;
-  const y1 = start.y;
-  const x2 = end.x;
-  const y2 = end.y;
+  const { x: x1, y: y1 } = start;
+  const { x: x2, y: y2 } = end;
 
-  // Curve control points:
-  // Bias control points along the dominant axis for smoother routing.
   const dx = x2 - x1;
   const dy = y2 - y1;
 
-  const curvature = 0.35; // tweak 0.25–0.45
+  const curvature = 0.35;
+
   let cp1x = x1;
   let cp1y = y1;
   let cp2x = x2;
   let cp2y = y2;
 
   if (Math.abs(dy) >= Math.abs(dx)) {
-    // Mostly vertical: bend in Y
     cp1y = y1 + dy * curvature;
     cp2y = y2 - dy * curvature;
   } else {
-    // Mostly horizontal: bend in X
     cp1x = x1 + dx * curvature;
     cp2x = x2 - dx * curvature;
   }

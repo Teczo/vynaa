@@ -12,6 +12,13 @@ interface BubbleNodeProps {
   isLoading?: boolean;
 }
 
+/**
+ * Root anchor in WORLD SPACE.
+ * This is your “workaround”: start the graph far-left so users build to the right.
+ * DashboardPage should also center the viewport on root after load.
+ */
+export const ROOT_WORLD_POSITION = { x: -1400, y: -200 };
+
 const BubbleNode: React.FC<BubbleNodeProps> = ({
   node,
   onAsk,
@@ -22,6 +29,11 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
+
+  const isRootNode = Boolean(isRoot) || node.type === 'root' || node.id === 'root';
+
+  // Root position override: root is a fixed anchor (not draggable)
+  const renderPos = isRootNode ? ROOT_WORLD_POSITION : node.position;
 
   const togglePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -39,6 +51,7 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
       voices.find((v) => v.name === 'Google US English') ||
       voices.find((v) => v.lang === 'en-US') ||
       voices[0];
+
     if (preferred) utterance.voice = preferred;
 
     utterance.onstart = () => setIsPlaying(true);
@@ -60,7 +73,9 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
   };
 
   const onPointerDownNode = (e: React.PointerEvent) => {
-    // Prevent text selection + ensure we can capture the pointer upstream
+    // 🔒 Root is locked: no dragging.
+    if (isRootNode) return;
+
     const target = e.target as HTMLElement;
 
     // Allow interaction with inputs/buttons without dragging
@@ -78,10 +93,8 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
     onDragStart(node.id, e.clientX, e.clientY, e.pointerId);
   };
 
-  const isRootNode = isRoot || node.type === 'root';
-
   const containerBg = isRootNode
-    ? 'bg-white text-zinc-900 shadow-2xl shadow-indigo-500/10'
+    ? 'bg-white text-zinc-900 shadow-2xl shadow-indigo-500/10 dark:bg-[#232325] dark:text-zinc-100 dark:shadow-black/30'
     : 'bg-white/90 backdrop-blur-xl text-zinc-900 border border-zinc-200/50 shadow-xl shadow-zinc-200/50 dark:bg-[#232325] dark:text-zinc-100 dark:border-white/5 dark:shadow-black/20';
 
   return (
@@ -93,11 +106,12 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
       className="group select-none"
       style={{
         position: 'absolute',
-        left: node.position.x,
-        top: node.position.y,
+        left: renderPos.x,
+        top: renderPos.y,
         transform: 'translate(-50%, -50%)',
         zIndex: node.isDragging ? 100 : 10,
-        width: isRootNode ? 'auto' : undefined, // Allow root to size itself
+        width: isRootNode ? 'auto' : undefined,
+        pointerEvents: 'auto',
       }}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -109,8 +123,12 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
           containerBg,
           isRootNode
             ? 'w-80 h-80 rounded-full flex items-center justify-center p-10 ring-1 ring-black/5 dark:ring-white/10'
-            : 'min-w-[200px] max-w-[480px] rounded-[32px] p-7', // Fixed width constraints
-          node.isDragging ? 'cursor-grabbing scale-[1.02]' : 'cursor-grab',
+            : 'min-w-[200px] max-w-[480px] rounded-[32px] p-7',
+          isRootNode
+            ? 'cursor-default'
+            : node.isDragging
+              ? 'cursor-grabbing scale-[1.02]'
+              : 'cursor-grab',
         ].join(' ')}
       >
         {isRootNode ? (
@@ -159,7 +177,11 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
                 className="p-2 rounded-full hover:bg-black/5 text-zinc-400 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white transition-all"
                 aria-label={isPlaying ? 'Stop playback' : 'Play'}
               >
-                {isPlaying ? <Square size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
+                {isPlaying ? (
+                  <Square size={12} fill="currentColor" />
+                ) : (
+                  <Play size={12} fill="currentColor" />
+                )}
               </button>
             </div>
 
@@ -180,7 +202,6 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
               </div>
             )}
 
-            {/* Suggestions */}
             {!isLoading && node.suggestions?.length > 0 && (
               <div className="mt-4 flex flex-wrap gap-2">
                 {node.suggestions.map((s) => (
@@ -200,7 +221,6 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
               </div>
             )}
 
-            {/* Continue input */}
             <form onSubmit={handleSubmit} className="w-full mt-4">
               <input
                 value={inputValue}

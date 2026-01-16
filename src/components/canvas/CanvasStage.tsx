@@ -47,7 +47,7 @@ const CanvasStage: React.FC<Props> = ({
         <main
             ref={mainRef}
             className={[
-                'flex-1 relative overflow-hidden',
+                'flex-1 relative overflow-visible',
                 'touch-none',
                 isPanningUI ? 'cursor-grabbing' : 'cursor-grab',
                 'select-none',
@@ -58,13 +58,13 @@ const CanvasStage: React.FC<Props> = ({
             onPointerCancel={onPointerCancelMain}
             onWheel={onWheelMain}
         >
-            {/* Background (ElevenLabs-like) */}
+            {/* Background */}
             <div className="absolute inset-0 pointer-events-none">
                 <div className="absolute inset-0 bg-gradient-to-b from-white to-[#f7f7f8] dark:from-[#0b0f14] dark:to-[#070a0d]" />
                 <div className="absolute inset-0 dark:bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.06),transparent_55%)]" />
             </div>
 
-            {/* Connections layer (clipped, transformed) */}
+            {/* Connections layer */}
             <div
                 className="absolute inset-0 will-change-transform"
                 style={{
@@ -83,7 +83,7 @@ const CanvasStage: React.FC<Props> = ({
                 </svg>
             </div>
 
-            {/* Nodes layer (overflow-visible to prevent clipping) */}
+            {/* Nodes layer */}
             <div
                 className="absolute inset-0 will-change-transform overflow-visible"
                 style={{
