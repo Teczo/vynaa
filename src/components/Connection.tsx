@@ -5,71 +5,73 @@ type Props = {
   parent: NodeData;
   child: NodeData;
   isHighlighted?: boolean;
-
-  nodeWidth?: number;
-  nodeHeight?: number;
-
   anchorPadding?: number;
 };
 
-const ROOT_SIZE = { w: 320, h: 320 }; // matches w-80 h-80
+const ROOT_RADIUS = 160; // w-80 = 320px → radius 160
 const DEFAULT_SIZE = { w: 280, h: 140 };
 
 function isRoot(node: NodeData) {
   return node.id === "root" || node.type === "root";
 }
 
-function getNodeSize(node: NodeData) {
-  return isRoot(node) ? ROOT_SIZE : DEFAULT_SIZE;
-}
-
-// node.position is CENTER
 function getCenter(node: NodeData) {
-  return {
-    cx: node.position.x,
-    cy: node.position.y,
-  };
+  return { cx: node.position.x, cy: node.position.y };
 }
 
-function getAnchorPoint(
+/**
+ * Returns the anchor point on a node's boundary in the direction of the target,
+ * plus the outward tangent direction at that point.
+ */
+function getAnchorAndTangent(
   from: NodeData,
   to: NodeData,
   pad: number
-) {
+): { x: number; y: number; tx: number; ty: number } {
   const { cx: fx, cy: fy } = getCenter(from);
-  const { cx: tx, cy: ty } = getCenter(to);
+  const { cx: tox, cy: toy } = getCenter(to);
 
-  const { w, h } = getNodeSize(from);
+  const dx = tox - fx;
+  const dy = toy - fy;
+  const dist = Math.sqrt(dx * dx + dy * dy);
 
-  const dx = tx - fx;
-  const dy = ty - fy;
+  // Fallback when nodes nearly overlap
+  if (dist < 1) {
+    return { x: fx, y: fy + pad, tx: 0, ty: 1 };
+  }
 
-  const halfW = w / 2;
-  const halfH = h / 2;
-
-  // Root prefers horizontal exits (builds to the right)
+  // --- Circle (root node) ---
   if (isRoot(from)) {
+    const angle = Math.atan2(dy, dx);
+    const r = ROOT_RADIUS + pad;
     return {
-      x: fx + halfW + pad,
-      y: fy,
+      x: fx + r * Math.cos(angle),
+      y: fy + r * Math.sin(angle),
+      tx: Math.cos(angle),
+      ty: Math.sin(angle),
     };
   }
 
-  // Normal directional logic
-  if (Math.abs(dy) >= Math.abs(dx)) {
-    // Vertical
-    if (dy >= 0) {
-      return { x: fx, y: fy + halfH + pad };
-    } else {
-      return { x: fx, y: fy - halfH - pad };
-    }
+  // --- Rounded rectangle (non-root) ---
+  const halfW = DEFAULT_SIZE.w / 2;
+  const halfH = DEFAULT_SIZE.h / 2;
+
+  // Angle from center to target vs the rectangle's diagonal
+  const cornerAngle = Math.atan2(halfH, halfW);
+  const absAngle = Math.atan2(Math.abs(dy), Math.abs(dx));
+
+  if (absAngle <= cornerAngle) {
+    // Ray hits the left or right edge
+    const signX = dx >= 0 ? 1 : -1;
+    const edgeX = fx + signX * (halfW + pad);
+    const edgeY = fy + (halfW / Math.abs(dx)) * dy;
+    return { x: edgeX, y: edgeY, tx: signX, ty: 0 };
   } else {
-    // Horizontal
-    if (dx >= 0) {
-      return { x: fx + halfW + pad, y: fy };
-    } else {
-      return { x: fx - halfW - pad, y: fy };
-    }
+    // Ray hits the top or bottom edge
+    const signY = dy >= 0 ? 1 : -1;
+    const edgeY = fy + signY * (halfH + pad);
+    const edgeX = fx + (halfH / Math.abs(dy)) * dx;
+    return { x: edgeX, y: edgeY, tx: 0, ty: signY };
   }
 }
 
@@ -79,29 +81,23 @@ const Connection: React.FC<Props> = ({
   isHighlighted,
   anchorPadding = 6,
 }) => {
-  const start = getAnchorPoint(parent, child, anchorPadding);
-  const end = getAnchorPoint(child, parent, anchorPadding);
+  const start = getAnchorAndTangent(parent, child, anchorPadding);
+  const end = getAnchorAndTangent(child, parent, anchorPadding);
 
   const { x: x1, y: y1 } = start;
   const { x: x2, y: y2 } = end;
 
+  // Distance between anchors drives control-point offset
   const dx = x2 - x1;
   const dy = y2 - y1;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const cpOffset = dist * 0.4;
 
-  const curvature = 0.35;
-
-  let cp1x = x1;
-  let cp1y = y1;
-  let cp2x = x2;
-  let cp2y = y2;
-
-  if (Math.abs(dy) >= Math.abs(dx)) {
-    cp1y = y1 + dy * curvature;
-    cp2y = y2 - dy * curvature;
-  } else {
-    cp1x = x1 + dx * curvature;
-    cp2x = x2 - dx * curvature;
-  }
+  // Control points extend along each anchor's outward tangent
+  const cp1x = x1 + start.tx * cpOffset;
+  const cp1y = y1 + start.ty * cpOffset;
+  const cp2x = x2 + end.tx * cpOffset;
+  const cp2y = y2 + end.ty * cpOffset;
 
   const d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
 
