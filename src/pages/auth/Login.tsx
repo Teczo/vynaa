@@ -58,9 +58,7 @@ const Login: React.FC = () => {
                 </form>
 
                 <div className="mt-6 text-center text-sm text-slate-400">
-                    <Link to="/forgot-password" className="hover:text-white transition-colors">Forgot Password?</Link>
-                    <span className="mx-2">•</span>
-                    <Link to="/signup" className="hover:text-white transition-colors">Create Account</Link>
+                    Don't have an account? <Link to="/signup" className="text-white hover:underline">Create Account</Link>
                 </div>
             </div>
         </div>

@@ -1,20 +1,67 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Vynaa AI — Branching Node Chat
 
-# Run and deploy your AI Studio app
+A branching node AI chat interface built with React 19 + TypeScript + Vite + Tailwind on the frontend, and Node.js + Express + MongoDB on the backend. Conversations render as draggable bubble nodes on an infinite canvas, connected by animated bezier curves, allowing users to explore multiple inquiry threads simultaneously.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/1UJnSjLHOn6szGQwfUnhD-MuWR0JF87y5
+- **Branching conversations** — fork any node to explore multiple lines of inquiry
+- **Infinite canvas** — pan, zoom, drag nodes freely
+- **BYOK (Bring Your Own Key)** — supports Google Gemini, OpenAI, and Anthropic. API keys stored in browser session only, never on the server
+- **Streaming responses** — AI responses appear token-by-token
+- **Session management** — create, rename, delete, and switch between chat sessions
+- **Canvas persistence** — node positions saved to database
 
-## Run Locally
+## Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS, Framer Motion
+- **Backend**: Node.js, Express 5, MongoDB (Mongoose)
+- **Auth**: JWT + bcrypt (email/password)
 
+## Setup
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Prerequisites
+
+- Node.js 18+
+- MongoDB (local or Atlas)
+
+### Install
+
+```bash
+npm install
+```
+
+### Configure
+
+Copy `.env.example` to `.env.local` and fill in the values:
+
+```bash
+cp .env.example .env.local
+```
+
+Required environment variables:
+
+- `MONGODB_URI` — MongoDB connection string
+- `JWT_SECRET` — random secret for JWT signing
+
+### Run
+
+```bash
+# Start backend (port 3001)
+npm run server
+
+# Start frontend (port 3000)
+npm run dev
+```
+
+### Build
+
+```bash
+npm run build
+```
+
+## Architecture
+
+- **Backend**: Express REST API at `/api/auth`, `/api/sessions`, `/api/user`
+- **Database**: Normalized schema with `User`, `ChatSession`, and `Turn` collections
+- **AI Calls**: Server proxies requests to AI providers using the user's API key (sent per-request, never stored)
+- **Auth**: JWT access tokens (15min) + refresh tokens via httpOnly cookies

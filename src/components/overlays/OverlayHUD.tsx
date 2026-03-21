@@ -1,13 +1,13 @@
 import React from 'react';
-import ThemeToggle from '../ThemeToggle';
-import { Plus, Minus, RotateCcw, RotateCw, User, Crosshair } from 'lucide-react';
 import TopNav from './TopNav';
 import FloatingIsland from './FloatingIsland';
 import MinimalWatermark from './MinimalWatermark';
+import { AIConfig } from '../SettingsModal';
 
 type Props = {
     userName: string;
     onProfile: () => void;
+    onSettings: () => void;
 
     canUndo: boolean;
     canRedo: boolean;
@@ -20,21 +20,26 @@ type Props = {
     onZoomOut: () => void;
     onZoomIn: () => void;
     zoomPct: number;
+
+    aiConfig: AIConfig | null;
 };
 
 const OverlayHUD: React.FC<Props> = (props) => {
     return (
-        // data-overlay used by canvas to ignore pointerdown from overlays
         <div
             data-overlay="true"
             className="fixed inset-0 z-[9999] pointer-events-none"
-            // critical: stop pointer events from bubbling into <main> handlers
             onPointerDownCapture={(e) => e.stopPropagation()}
             onPointerMoveCapture={(e) => e.stopPropagation()}
             onPointerUpCapture={(e) => e.stopPropagation()}
             onWheelCapture={(e) => e.stopPropagation()}
         >
-            <TopNav userName={props.userName} onProfile={props.onProfile} />
+            <TopNav
+                userName={props.userName}
+                onProfile={props.onProfile}
+                onSettings={props.onSettings}
+                aiConfig={props.aiConfig}
+            />
 
             <FloatingIsland
                 canUndo={props.canUndo}

@@ -1,7 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load .env.local explicitly
+// Load .env.local first (higher priority), then .env
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
-
-console.log('Environment variables loaded from .env.local');
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });

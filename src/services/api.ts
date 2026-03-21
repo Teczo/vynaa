@@ -1,8 +1,6 @@
 import axios from 'axios';
 
-const apiStr = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
-const API_URL = apiStr;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 const api = axios.create({
     baseURL: API_URL,
@@ -51,35 +49,10 @@ api.interceptors.response.use(
 
 export default api;
 
-// Projects API
-export const projects = {
-    list: async () => {
-        const response = await api.get('/projects');
-        return response.data;
-    },
-    create: async (name: string) => {
-        const response = await api.post('/projects', { name });
-        return response.data;
-    },
-    update: async (id: string, updates: { name?: string; order?: number; isExpanded?: boolean }) => {
-        const response = await api.patch(`/projects/${id}`, updates);
-        return response.data;
-    },
-    delete: async (id: string, mode: 'soft' | 'hard' = 'soft') => {
-        const response = await api.delete(`/projects/${id}?mode=${mode}`);
-        return response.data;
-    }
-};
-
-// Sessions API (replaces conversations)
+// Sessions API
 export const sessions = {
-    list: async (projectId?: string | null, status: string = 'active') => {
-        const params = new URLSearchParams();
-        params.append('status', status);
-        if (projectId !== undefined) {
-            params.append('projectId', projectId === null ? 'null' : projectId);
-        }
-        const response = await api.get(`/sessions?${params.toString()}`);
+    list: async () => {
+        const response = await api.get('/sessions');
         return response.data;
     },
 
@@ -88,17 +61,12 @@ export const sessions = {
         return response.data;
     },
 
-    create: async (title: string, projectId: string | null = null) => {
-        const response = await api.post('/sessions', { title, projectId });
+    create: async (title: string) => {
+        const response = await api.post('/sessions', { title });
         return response.data;
     },
 
-    update: async (id: string, updates: {
-        title?: string;
-        projectId?: string | null;
-        status?: string;
-        summary?: string;
-    }) => {
+    update: async (id: string, updates: { title?: string }) => {
         const response = await api.patch(`/sessions/${id}`, updates);
         return response.data;
     },
@@ -106,7 +74,7 @@ export const sessions = {
     delete: async (id: string) => {
         const response = await api.delete(`/sessions/${id}`);
         return response.data;
-    }
+    },
 };
 
 // Turns API
@@ -116,35 +84,85 @@ export const turns = {
         return response.data;
     },
 
-    create: async (sessionId: string, content: string, position?: { x: number; y: number }) => {
-        const response = await api.post(`/sessions/${sessionId}/turns`, {
-            content,
-            position
+    /**
+     * Create a turn and stream the AI response.
+     * Returns { userTurn, assistantTurn, sessionTitle } after streaming completes.
+     */
+    create: async (
+        sessionId: string,
+        content: string,
+        parentTurnId: string | null,
+        position: { x: number; y: number },
+        provider: string,
+        model: string,
+        apiKey: string,
+        onToken?: (token: string) => void,
+    ): Promise<{ userTurn: any; assistantTurn: any; sessionTitle?: string }> => {
+        const token = localStorage.getItem('accessToken');
+
+        const response = await fetch(`${API_URL}/sessions/${sessionId}/turns`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            credentials: 'include',
+            body: JSON.stringify({ content, parentTurnId, position, provider, model, apiKey }),
         });
-        return response.data;
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Request failed' }));
+            throw new Error(err.error || err.message || 'Failed to create turn');
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No response body');
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result: any = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const jsonStr = line.slice(6).trim();
+                    if (jsonStr === '[DONE]') continue;
+                    try {
+                        const data = JSON.parse(jsonStr);
+                        if (data.type === 'token' && onToken) {
+                            onToken(data.content);
+                        } else if (data.type === 'done') {
+                            result = data;
+                        } else if (data.type === 'error') {
+                            throw new Error(data.content);
+                        }
+                    } catch (e: any) {
+                        if (e.message && !e.message.includes('JSON')) throw e;
+                    }
+                }
+            }
+        }
+
+        if (!result) throw new Error('Stream ended without completion');
+
+        return {
+            userTurn: result.userTurn,
+            assistantTurn: result.assistantTurn,
+            sessionTitle: result.sessionTitle,
+        };
     },
 
     updatePosition: async (sessionId: string, turnId: string, position: { x: number; y: number }) => {
         const response = await api.patch(`/sessions/${sessionId}/turns/${turnId}/position`, {
-            position
+            position,
         });
         return response.data;
-    }
-};
-
-// Search API
-// Search API
-export const search = {
-    query: async (q: string) => {
-        const response = await api.get(`/search?q=${encodeURIComponent(q)}`);
-        return response.data;
-    }
-};
-
-// TTS API
-export const tts = {
-    generate: async (text: string) => {
-        const response = await api.post('/tts/generate', { text });
-        return response.data;
-    }
+    },
 };

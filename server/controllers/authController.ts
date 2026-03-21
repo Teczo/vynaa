@@ -1,9 +1,7 @@
 import { Request, Response } from 'express';
 import User from '../models/User';
 import Session from '../models/Session';
-import Token from '../models/Token';
 import generateToken from '../utils/generateToken';
-import { sendEmail, generateVerificationToken } from '../utils/sendEmail';
 import crypto from 'crypto';
 
 // @desc    Register a new user
@@ -11,6 +9,10 @@ import crypto from 'crypto';
 export const signup = async (req: Request, res: Response) => {
     try {
         const { name, email, password } = req.body;
+
+        if (!name || !email || !password) {
+            return res.status(400).json({ message: 'Name, email, and password are required' });
+        }
 
         const userExists = await User.findOne({ email });
         if (userExists) {
@@ -24,29 +26,31 @@ export const signup = async (req: Request, res: Response) => {
         });
 
         if (user) {
-            // Create verification token
-            const verificationToken = generateVerificationToken();
-            const tokenHash = crypto.createHash('sha256').update(verificationToken).digest('hex');
+            // Auto-login after signup
+            const accessToken = generateToken(user._id.toString());
+            const refreshToken = crypto.randomBytes(40).toString('hex');
 
-            await Token.create({
+            await Session.create({
                 userId: user._id,
-                type: 'email_verification',
-                tokenHash,
-                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+                refreshTokenHash: crypto.createHash('sha256').update(refreshToken).digest('hex'),
+                userAgent: req.headers['user-agent'] || 'Unknown',
+                ipAddress: req.ip || 'Unknown',
+                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             });
 
-            const verifyUrl = `${process.env.VITE_APP_URL}/verify-email?token=${verificationToken}`;
-            await sendEmail({
-                email: user.email,
-                subject: 'Verify your email',
-                message: `Please click here to verify your email: ${verifyUrl}`
+            res.cookie('refreshToken', refreshToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/api/auth',
+                maxAge: 7 * 24 * 60 * 60 * 1000,
             });
 
             res.status(201).json({
                 _id: user._id,
                 name: user.name,
                 email: user.email,
-                message: 'Registration successful. Please check email for verification.'
+                token: accessToken,
             });
         } else {
             res.status(400).json({ message: 'Invalid user data' });
@@ -64,37 +68,30 @@ export const login = async (req: Request, res: Response) => {
         const user = await User.findOne({ email });
 
         if (user && (await user.comparePassword(password))) {
-            // Generate Access Token
             const accessToken = generateToken(user._id.toString());
-
-            // Generate Refresh Token
             const refreshToken = crypto.randomBytes(40).toString('hex');
-            const userAgent = req.headers['user-agent'] || 'Unknown';
-            const ipAddress = req.ip || 'Unknown';
 
-            // Store Session
             await Session.create({
                 userId: user._id,
                 refreshTokenHash: crypto.createHash('sha256').update(refreshToken).digest('hex'),
-                userAgent,
-                ipAddress,
-                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+                userAgent: req.headers['user-agent'] || 'Unknown',
+                ipAddress: req.ip || 'Unknown',
+                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             });
 
-            // Set Refresh Cookie
             res.cookie('refreshToken', refreshToken, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === 'production',
                 sameSite: 'lax',
                 path: '/api/auth',
-                maxAge: 7 * 24 * 60 * 60 * 1000
+                maxAge: 7 * 24 * 60 * 60 * 1000,
             });
 
             res.json({
                 _id: user._id,
                 name: user.name,
                 email: user.email,
-                token: accessToken
+                token: accessToken,
             });
         } else {
             res.status(401).json({ message: 'Invalid email or password' });
@@ -104,7 +101,7 @@ export const login = async (req: Request, res: Response) => {
     }
 };
 
-// @desc    Logout user / Clear session
+// @desc    Logout user
 // @route   POST /api/auth/logout
 export const logout = async (req: Request, res: Response) => {
     const refreshToken = req.cookies.refreshToken;
@@ -135,7 +132,6 @@ export const refresh = async (req: Request, res: Response) => {
             return res.status(403).json({ message: 'Invalid or expired session' });
         }
 
-        // Update last active
         session.lastActive = new Date();
         await session.save();
 
@@ -144,28 +140,4 @@ export const refresh = async (req: Request, res: Response) => {
     } catch (error: any) {
         res.status(500).json({ message: error.message });
     }
-};
-
-// @desc    Verify Email
-// @route   POST /api/auth/verify-email
-export const verifyEmail = async (req: Request, res: Response) => {
-    res.status(501).json({ message: 'Not implemented' });
-};
-
-// @desc    Resend Verification Email
-// @route   POST /api/auth/resend-verification
-export const resendVerification = async (req: Request, res: Response) => {
-    res.status(501).json({ message: 'Not implemented' });
-};
-
-// @desc    Forgot Password
-// @route   POST /api/auth/forgot-password
-export const forgotPassword = async (req: Request, res: Response) => {
-    res.status(501).json({ message: 'Not implemented' });
-};
-
-// @desc    Reset Password
-// @route   POST /api/auth/reset-password
-export const resetPassword = async (req: Request, res: Response) => {
-    res.status(501).json({ message: 'Not implemented' });
 };

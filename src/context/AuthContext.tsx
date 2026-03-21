@@ -5,8 +5,6 @@ interface User {
     _id: string;
     name: string;
     email: string;
-    preferences?: any;
-    isEmailVerified: boolean;
 }
 
 interface AuthContextType {
@@ -24,28 +22,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
-    // Check if user is logged in (via refresh token cookie) on mount
     useEffect(() => {
         const checkAuth = async () => {
             try {
-                // Try to refresh token immediately to get an access token
                 const { data } = await api.post('/auth/refresh');
                 if (data.token) {
-                    localStorage.setItem('accessToken', data.token); // Store for axios interceptor
-
-                    // Fetch user profile
+                    localStorage.setItem('accessToken', data.token);
                     const userRes = await api.get('/user/me');
                     setUser(userRes.data);
                 }
-            } catch (error: any) {
-                // If 401, it just means not logged in.
-                // We don't need to log this as an error.
-                if (error.response && error.response.status === 401) {
-                    setUser(null);
-                } else {
-                    console.error('Auth check failed:', error);
-                    setUser(null);
-                }
+            } catch {
+                setUser(null);
                 localStorage.removeItem('accessToken');
             } finally {
                 setLoading(false);
@@ -58,23 +45,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const login = async (email: string, password: string) => {
         const { data } = await api.post('/auth/login', { email, password });
         localStorage.setItem('accessToken', data.token);
-        setUser({
-            _id: data._id,
-            name: data.name,
-            email: data.email,
-            isEmailVerified: false // Default/Optimistic
-        });
-        // Fetch full profile to be sure
-        const userRes = await api.get('/user/me');
-        setUser(userRes.data);
+        setUser({ _id: data._id, name: data.name, email: data.email });
     };
 
     const signup = async (name: string, email: string, password: string) => {
-        await api.post('/auth/signup', { name, email, password });
-        // Don't auto-login if verification required, or do?
-        // Controller returns message. User needs to verify email or login.
-        // For now, let's assume they need to login or we auto-login.
-        // Our Signup controller just returns message.
+        const { data } = await api.post('/auth/signup', { name, email, password });
+        localStorage.setItem('accessToken', data.token);
+        setUser({ _id: data._id, name: data.name, email: data.email });
     };
 
     const logout = async () => {
@@ -93,7 +70,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             login,
             signup,
             logout,
-            isAuthenticated: !!user
+            isAuthenticated: !!user,
         }}>
             {children}
         </AuthContext.Provider>

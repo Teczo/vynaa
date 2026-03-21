@@ -5,13 +5,6 @@ export interface IUser extends Document {
   email: string;
   passwordHash: string;
   name: string;
-  isEmailVerified: boolean;
-  preferences: {
-    theme: 'light' | 'dark' | 'system';
-    audioEnabled: boolean;
-    playbackSpeed: number;
-    timezone: string;
-  };
   createdAt: Date;
   updatedAt: Date;
   comparePassword(potentialPassword: string): Promise<boolean>;
@@ -27,14 +20,7 @@ const UserSchema: Schema = new Schema({
     index: true
   },
   passwordHash: { type: String, required: true },
-  name: { type: String, required: true },
-  isEmailVerified: { type: Boolean, default: false },
-  preferences: {
-    theme: { type: String, enum: ['light', 'dark', 'system'], default: 'dark' },
-    audioEnabled: { type: Boolean, default: true },
-    playbackSpeed: { type: Number, default: 1.0 },
-    timezone: { type: String, default: 'UTC' }
-  }
+  name: { type: String, required: true }
 }, {
   timestamps: true
 });

@@ -5,8 +5,6 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 
 import Login from './src/pages/auth/Login';
 import Signup from './src/pages/auth/Signup';
-import VerifyEmail from './src/pages/auth/VerifyEmail';
-import Profile from './src/pages/Profile';
 import DashboardPage from './src/pages/DashboardPage';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -30,16 +28,6 @@ const App: React.FC = () => (
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="/verify-email" element={<VerifyEmail />} />
-
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
 
         <Route
           path="/"
@@ -49,6 +37,9 @@ const App: React.FC = () => (
             </ProtectedRoute>
           }
         />
+
+        {/* Catch-all redirect */}
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </AuthProvider>
   </Router>
