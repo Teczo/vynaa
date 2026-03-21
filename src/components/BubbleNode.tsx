@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Square, Sparkles, MessageSquare, CornerDownRight } from 'lucide-react';
+import { Sparkles, MessageSquare, CornerDownRight } from 'lucide-react';
 import { NodeData } from '../types';
 
 interface BubbleNodeProps {
@@ -12,11 +12,6 @@ interface BubbleNodeProps {
   isLoading?: boolean;
 }
 
-/**
- * Root anchor in WORLD SPACE.
- * This is your “workaround”: start the graph far-left so users build to the right.
- * DashboardPage should also center the viewport on root after load.
- */
 export const ROOT_WORLD_POSITION = { x: -1400, y: -200 };
 
 const BubbleNode: React.FC<BubbleNodeProps> = ({
@@ -28,42 +23,9 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
   isLoading,
 }) => {
   const [inputValue, setInputValue] = useState('');
-  const [isPlaying, setIsPlaying] = useState(false);
 
   const isRootNode = Boolean(isRoot) || node.type === 'root' || node.id === 'root';
-
-  // Root position override: root is a fixed anchor (not draggable)
   const renderPos = isRootNode ? ROOT_WORLD_POSITION : node.position;
-
-  const togglePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    if (isPlaying) {
-      window.speechSynthesis.cancel();
-      setIsPlaying(false);
-      return;
-    }
-    if (!node.content) return;
-
-    const utterance = new SpeechSynthesisUtterance(node.content);
-    const voices = window.speechSynthesis.getVoices();
-    const preferred =
-      voices.find((v) => v.name === 'Google US English') ||
-      voices.find((v) => v.lang === 'en-US') ||
-      voices[0];
-
-    if (preferred) utterance.voice = preferred;
-
-    utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => setIsPlaying(false);
-    utterance.onerror = () => setIsPlaying(false);
-
-    window.speechSynthesis.speak(utterance);
-  };
-
-  useEffect(() => {
-    return () => window.speechSynthesis.cancel();
-  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,12 +35,9 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
   };
 
   const onPointerDownNode = (e: React.PointerEvent) => {
-    // 🔒 Root is locked: no dragging.
     if (isRootNode) return;
 
     const target = e.target as HTMLElement;
-
-    // Allow interaction with inputs/buttons without dragging
     if (
       target.closest('button') ||
       target.closest('input') ||
@@ -170,19 +129,6 @@ const BubbleNode: React.FC<BubbleNodeProps> = ({
                   {node.type === 'ai' ? 'Intelligence' : 'Query'}
                 </span>
               </div>
-
-              <button
-                type="button"
-                onClick={togglePlay}
-                className="p-2 rounded-full hover:bg-black/5 text-zinc-400 hover:text-zinc-900 dark:hover:bg-white/10 dark:hover:text-white transition-all"
-                aria-label={isPlaying ? 'Stop playback' : 'Play'}
-              >
-                {isPlaying ? (
-                  <Square size={12} fill="currentColor" />
-                ) : (
-                  <Play size={12} fill="currentColor" />
-                )}
-              </button>
             </div>
 
             <p className="text-[17px] leading-[1.6] font-medium tracking-tight whitespace-pre-wrap text-zinc-800 dark:text-zinc-200">

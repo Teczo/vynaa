@@ -1,97 +1,113 @@
 import express from 'express';
 import ChatSession from '../models/ChatSession';
 import Turn from '../models/Turn';
-import { generateAIResponse } from '../services/aiService';
+import { streamAIResponse } from '../services/aiService';
 
 const router = express.Router();
 
-// POST /api/sessions/:sessionId/turns - Add new turn and get AI response
-// POST /api/sessions/:sessionId/turns
+// POST /api/sessions/:sessionId/turns - Create user turn + stream AI response
 router.post('/:sessionId/turns', async (req: any, res) => {
     try {
         const { sessionId } = req.params;
         const userId = req.user?.id;
-        const { content, position } = req.body;
+        const { content, parentTurnId, position, provider, model, apiKey } = req.body;
 
-        const session = await ChatSession.findOne({
-            _id: sessionId,
-            ownerUserId: userId,
-            status: 'active'
-        });
+        if (!content || typeof content !== 'string') {
+            return res.status(400).json({ error: 'Content is required' });
+        }
+
+        if (!apiKey) {
+            return res.status(400).json({ error: 'API key is required. Configure it in Settings.' });
+        }
+
+        if (!provider || !model) {
+            return res.status(400).json({ error: 'Provider and model are required' });
+        }
+
+        const session = await ChatSession.findOne({ _id: sessionId, userId });
 
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
         // Create user turn
-        const userTurnIndex = session.nextTurnIndex;
-        session.nextTurnIndex += 1;
-        await session.save();
-
         const userTurn = await Turn.create({
             sessionId,
-            projectId: session.projectId,
-            turnIndex: userTurnIndex,
+            parentTurnId: parentTurnId || null,
             role: 'user',
             content,
-            metadata: {
-                position: position || { x: 0, y: 0 },
-                velocity: { x: 0, y: 0 }
-            }
+            aiModel: '',
+            provider,
+            position: position || { x: 0, y: 0 },
         });
 
-        // Generate AI response with error handling
-        let aiResponse;
-        try {
-            aiResponse = await generateAIResponse(sessionId, content);
-        } catch (aiError) {
-            console.error('AI generation failed:', aiError);
-
-            // Create error response
-            aiResponse = {
-                answer: "I'm having trouble processing that request right now. Please try again.",
-                suggestions: [
-                    { id: `sug-error-1`, text: "Try rephrasing your question" },
-                    { id: `sug-error-2`, text: "Ask something else" }
-                ],
-                audio: undefined
-            };
-        }
-
-        // Create assistant turn
-        const assistantTurnIndex = session.nextTurnIndex;
-        session.nextTurnIndex += 1;
-
-        if (userTurnIndex === 0 && session.title === 'New Canvas') {
+        // Auto-title from first message
+        const turnCount = await Turn.countDocuments({ sessionId });
+        if (turnCount === 1 && session.title === 'New Canvas') {
             session.title = content.length > 50 ? content.substring(0, 50) + '...' : content;
+            await session.save();
         }
 
-        await session.save();
+        // Build conversation history by following parentTurnId chain
+        const history = await buildConversationHistory(userTurn._id.toString(), sessionId);
+
+        // Stream AI response
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        let fullResponse = '';
+
+        try {
+            await streamAIResponse({
+                provider,
+                model,
+                apiKey,
+                messages: history,
+                onToken: (token: string) => {
+                    fullResponse += token;
+                    res.write(`data: ${JSON.stringify({ type: 'token', content: token })}\n\n`);
+                },
+            });
+        } catch (aiError: any) {
+            res.write(`data: ${JSON.stringify({ type: 'error', content: aiError.message || 'AI call failed' })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            res.end();
+            return;
+        }
+
+        // Save assistant turn
+        const aiPosition = position
+            ? { x: position.x + (Math.random() - 0.5) * 150, y: position.y + 300 }
+            : { x: 0, y: 300 };
 
         const assistantTurn = await Turn.create({
             sessionId,
-            projectId: session.projectId,
-            turnIndex: assistantTurnIndex,
+            parentTurnId: userTurn._id,
             role: 'assistant',
-            content: aiResponse.answer,
-            metadata: {
-                suggestions: aiResponse.suggestions,
-                audio: aiResponse.audio,
-                position: position ? {
-                    x: position.x + (Math.random() - 0.5) * 150,
-                    y: position.y + 300
-                } : { x: 0, y: 300 },
-                velocity: { x: 0, y: 0 }
-            }
+            content: fullResponse,
+            aiModel: model,
+            provider,
+            position: aiPosition,
         });
 
-        res.status(201).json({
+        // Send final message with turn data
+        res.write(`data: ${JSON.stringify({
+            type: 'done',
             userTurn,
-            assistantTurn
-        });
+            assistantTurn,
+            sessionTitle: session.title,
+        })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        res.end();
     } catch (error) {
         console.error('Error creating turn:', error);
-        res.status(500).json({ error: 'Failed to create turn' });
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to create turn' });
+        } else {
+            res.write(`data: ${JSON.stringify({ type: 'error', content: 'Server error' })}\n\n`);
+            res.end();
+        }
     }
 });
 
@@ -101,19 +117,12 @@ router.get('/:sessionId/turns', async (req: any, res) => {
         const { sessionId } = req.params;
         const userId = req.user?.id;
 
-        // Verify ownership
-        const session = await ChatSession.findOne({
-            _id: sessionId,
-            ownerUserId: userId
-        });
-
+        const session = await ChatSession.findOne({ _id: sessionId, userId });
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
-        const turns = await Turn.find({ sessionId })
-            .sort({ turnIndex: 1 });
-
+        const turns = await Turn.find({ sessionId }).sort({ createdAt: 1 });
         res.json(turns);
     } catch (error) {
         console.error('Error fetching turns:', error);
@@ -126,26 +135,20 @@ router.patch('/:sessionId/turns/:turnId/position', async (req: any, res) => {
     try {
         const { sessionId, turnId } = req.params;
         const userId = req.user?.id;
-        const { position } = req.body; // { x: number, y: number }
+        const { position } = req.body;
 
         if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') {
             return res.status(400).json({ error: 'Invalid position format' });
         }
 
-        // Verify session ownership
-        const session = await ChatSession.findOne({
-            _id: sessionId,
-            ownerUserId: userId
-        });
-
+        const session = await ChatSession.findOne({ _id: sessionId, userId });
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
-        // Find and update the turn
         const turn = await Turn.findOneAndUpdate(
             { _id: turnId, sessionId },
-            { $set: { 'metadata.position': position } },
+            { $set: { position } },
             { new: true }
         );
 
@@ -159,5 +162,32 @@ router.patch('/:sessionId/turns/:turnId/position', async (req: any, res) => {
         res.status(500).json({ error: 'Failed to update turn position' });
     }
 });
+
+/**
+ * Build conversation history by following the parentTurnId chain
+ * from the given turn back to the root.
+ */
+async function buildConversationHistory(turnId: string, sessionId: string) {
+    const chain: Array<{ role: string; content: string }> = [];
+    let currentId: string | null = turnId;
+
+    // Follow the chain up to root (max 50 turns to prevent infinite loops)
+    const turns: any[] = [];
+    for (let i = 0; i < 50 && currentId; i++) {
+        const turn = await Turn.findOne({ _id: currentId, sessionId });
+        if (!turn) break;
+        turns.unshift(turn);
+        currentId = turn.parentTurnId?.toString() || null;
+    }
+
+    for (const turn of turns) {
+        chain.push({
+            role: turn.role === 'assistant' ? 'assistant' : 'user',
+            content: turn.content,
+        });
+    }
+
+    return chain;
+}
 
 export default router;

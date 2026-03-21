@@ -8,6 +8,7 @@ import { useUndo } from '../hooks/useUndo';
 import { useAuth } from '../context/AuthContext';
 import { sessions, turns } from '../services/api';
 import { turnsToNodes } from '../utils/turnConverter';
+import SettingsModal, { AIConfig, getStoredConfig } from '../components/SettingsModal';
 
 import CanvasStage from '../components/canvas/CanvasStage';
 import OverlayHUD from '../components/overlays/OverlayHUD';
@@ -41,6 +42,8 @@ const DashboardPage: React.FC = () => {
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const [isSessionLoading, setIsSessionLoading] = useState(false);
     const [isPanningUI, setIsPanningUI] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [aiConfig, setAiConfig] = useState<AIConfig | null>(getStoredConfig());
 
     const dragRef = useRef<{
         id: string;
@@ -74,7 +77,7 @@ const DashboardPage: React.FC = () => {
 
         const rect = el.getBoundingClientRect();
 
-        const targetX = rect.width * 0.3;   // start view slightly left
+        const targetX = rect.width * 0.3;
         const targetY = rect.height * 0.35;
 
         setCanvas((prev) => ({
@@ -103,7 +106,6 @@ const DashboardPage: React.FC = () => {
                 }
             } catch (error) {
                 console.error('Failed to initialize canvas:', error);
-                alert('Failed to load. Please refresh the page.');
             } finally {
                 setIsSessionLoading(false);
             }
@@ -114,7 +116,6 @@ const DashboardPage: React.FC = () => {
 
     useEffect(() => {
         if (activeSessionId) loadSession(activeSessionId);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSessionId]);
 
     const loadSession = async (id: string) => {
@@ -122,7 +123,7 @@ const DashboardPage: React.FC = () => {
             setIsSessionLoading(true);
             const data = await sessions.get(id);
 
-            const nodeList = turnsToNodes(data.turns).map((n) =>
+            const nodeList = turnsToNodes(data.turns).map((n: NodeData) =>
                 n.id === 'root' || n.type === 'root'
                     ? { ...n, position: ROOT_WORLD_POSITION }
                     : n
@@ -132,7 +133,6 @@ const DashboardPage: React.FC = () => {
             requestAnimationFrame(() => centerOnRoot(nodeList));
         } catch (err) {
             console.error('Failed to load session', err);
-            alert('Failed to load session. Please try again.');
         } finally {
             setIsSessionLoading(false);
         }
@@ -147,6 +147,11 @@ const DashboardPage: React.FC = () => {
     const handleAsk = useCallback(
         async (question: string, parentId: string) => {
             if (!activeSessionId) return;
+
+            if (!aiConfig || !aiConfig.apiKey) {
+                setShowSettings(true);
+                return;
+            }
 
             const parentNode = nodes.find((n) => n.id === parentId);
             if (!parentNode) return;
@@ -165,15 +170,49 @@ const DashboardPage: React.FC = () => {
                 content: question,
                 suggestions: [],
                 position: { x: newX, y: newY },
-                velocity: { x: 0, y: 0 },
                 timestamp: Date.now(),
             };
 
             setNodesWithHistory((prev) => [...prev, tempUserNode]);
             setIsLoading(tempUserNodeId);
 
+            // The parentTurnId for the backend: if parentId is 'root', send null
+            const parentTurnId = parentId === 'root' ? null : parentId;
+
             try {
-                const response = await turns.create(activeSessionId, question, { x: newX, y: newY });
+                const tempAiNodeId = `temp-ai-${Date.now()}`;
+                let streamingContent = '';
+
+                const response = await turns.create(
+                    activeSessionId,
+                    question,
+                    parentTurnId,
+                    { x: newX, y: newY },
+                    aiConfig.provider,
+                    aiConfig.model,
+                    aiConfig.apiKey,
+                    (token: string) => {
+                        streamingContent += token;
+                        // Update the temporary AI node with streaming content
+                        setNodesWithoutHistory((prev) => {
+                            const existing = prev.find(n => n.id === tempAiNodeId);
+                            if (existing) {
+                                return prev.map(n => n.id === tempAiNodeId ? { ...n, content: streamingContent } : n);
+                            } else {
+                                // Create the temp AI node on first token
+                                return [...prev, {
+                                    id: tempAiNodeId,
+                                    parentId: tempUserNodeId,
+                                    type: 'ai' as const,
+                                    content: streamingContent,
+                                    suggestions: [],
+                                    position: { x: newX + (Math.random() - 0.5) * 150, y: newY + 300 },
+                                    timestamp: Date.now(),
+                                }];
+                            }
+                        });
+                    },
+                );
 
                 const userNode: NodeData = {
                     id: response.userTurn._id,
@@ -181,8 +220,7 @@ const DashboardPage: React.FC = () => {
                     type: 'user',
                     content: response.userTurn.content,
                     suggestions: [],
-                    position: response.userTurn.metadata.position,
-                    velocity: response.userTurn.metadata.velocity,
+                    position: response.userTurn.position,
                     timestamp: new Date(response.userTurn.createdAt).getTime(),
                 };
 
@@ -191,23 +229,38 @@ const DashboardPage: React.FC = () => {
                     parentId: response.userTurn._id,
                     type: 'ai',
                     content: response.assistantTurn.content,
-                    suggestions: response.assistantTurn.metadata.suggestions || [],
-                    position: response.assistantTurn.metadata.position,
-                    velocity: response.assistantTurn.metadata.velocity,
-                    audio: response.assistantTurn.metadata.audio,
+                    suggestions: response.assistantTurn.suggestions || [],
+                    position: response.assistantTurn.position,
                     timestamp: new Date(response.assistantTurn.createdAt).getTime(),
                 };
 
-                setNodesWithHistory((prev) => [...prev.filter((n) => n.id !== tempUserNodeId), userNode, aiNode]);
-            } catch (error) {
+                setNodesWithHistory((prev) => [
+                    ...prev.filter((n) => n.id !== tempUserNodeId && n.id !== tempAiNodeId),
+                    userNode,
+                    aiNode,
+                ]);
+            } catch (error: any) {
                 console.error('Failed to ask question:', error);
-                setNodesWithHistory((prev) => prev.filter((n) => n.id !== tempUserNodeId));
-                alert('Failed to get response. Please try again.');
+                setNodesWithHistory((prev) => prev.filter((n) => n.id !== tempUserNodeId && !n.id.startsWith('temp-ai-')));
+                // Show error inline instead of alert
+                const errorNodeId = `error-${Date.now()}`;
+                setNodesWithHistory((prev) => [
+                    ...prev,
+                    {
+                        id: errorNodeId,
+                        parentId,
+                        type: 'ai' as const,
+                        content: `Error: ${error.message || 'Failed to get response. Check your API key in Settings.'}`,
+                        suggestions: [],
+                        position: { x: newX, y: newY + 300 },
+                        timestamp: Date.now(),
+                    },
+                ]);
             } finally {
                 setIsLoading(null);
             }
         },
-        [activeSessionId, nodes, setNodesWithHistory]
+        [activeSessionId, nodes, setNodesWithHistory, setNodesWithoutHistory, aiConfig]
     );
 
     // IMPORTANT: ignore overlay clicks so buttons work
@@ -215,12 +268,8 @@ const DashboardPage: React.FC = () => {
         if (e.button !== 0) return;
 
         const target = e.target as HTMLElement;
-
-        // Ignore any overlay UI interactions
         if (target.closest('[data-overlay="true"]')) return;
         if (target.closest('button, a, input, textarea, select')) return;
-
-        // Ignore nodes
         if (target.closest('[data-node="true"]')) return;
 
         e.preventDefault();
@@ -247,12 +296,9 @@ const DashboardPage: React.FC = () => {
             const dx = e.clientX - pan.startX;
             const dy = e.clientY - pan.startY;
 
-            const nextOffsetX = pan.initialOffsetX + dx;
-            const nextOffsetY = pan.initialOffsetY + dy;
-
             setCanvas((prev) => ({
                 ...prev,
-                offset: { x: nextOffsetX, y: nextOffsetY },
+                offset: { x: pan.initialOffsetX + dx, y: pan.initialOffsetY + dy },
             }));
 
             return;
@@ -288,8 +334,7 @@ const DashboardPage: React.FC = () => {
 
             setNodesWithHistory((prev) => {
                 const node = prev.find((n) => n.id === id);
-                // Save to backend if it's a real node and we have a session
-                if (node && activeSessionId && !id.startsWith('temp-') && id !== 'root') {
+                if (node && activeSessionId && !id.startsWith('temp-') && !id.startsWith('error-') && id !== 'root') {
                     turns.updatePosition(activeSessionId, id, node.position)
                         .catch(err => console.error('Failed to save position:', err));
                 }
@@ -315,14 +360,13 @@ const DashboardPage: React.FC = () => {
     };
 
     const onWheelMain = (e: React.WheelEvent) => {
-        // IMPORTANT: do not let page scroll
         e.preventDefault();
         const next = Math.min(Math.max(canvas.scale + -e.deltaY * 0.001, 0.1), 2);
         setCanvas((p) => ({ ...p, scale: next }));
     };
 
     const handleDragStart = (id: string, clientX: number, clientY: number, pointerId: number) => {
-        if (id === 'root') return; // 🔒 absolute lock
+        if (id === 'root') return;
 
         const node = nodes.find((n) => n.id === id);
         if (!node) return;
@@ -349,7 +393,7 @@ const DashboardPage: React.FC = () => {
             <div className="min-h-screen bg-[#0b0f14] flex items-center justify-center">
                 <div className="text-center">
                     <div className="w-14 h-14 border-2 border-white/15 border-t-white rounded-full animate-spin mx-auto mb-4" />
-                    <div className="text-white/60 text-sm">Loading canvas…</div>
+                    <div className="text-white/60 text-sm">Loading canvas...</div>
                 </div>
             </div>
         );
@@ -382,6 +426,7 @@ const DashboardPage: React.FC = () => {
             <OverlayHUD
                 userName={user?.name?.split(' ')[0] || 'Profile'}
                 onProfile={() => navigate('/profile')}
+                onSettings={() => setShowSettings(true)}
                 canUndo={canUndo}
                 canRedo={canRedo}
                 onUndo={undo}
@@ -391,7 +436,29 @@ const DashboardPage: React.FC = () => {
                 onZoomIn={() => setCanvas((p) => ({ ...p, scale: Math.min(p.scale + 0.1, 2) }))}
                 zoomPct={Math.round(canvas.scale * 100)}
                 disableCenter={nodes.length === 0}
+                aiConfig={aiConfig}
             />
+
+            <SettingsModal
+                isOpen={showSettings}
+                onClose={() => setShowSettings(false)}
+                onSave={setAiConfig}
+            />
+
+            {/* No API key prompt */}
+            {!aiConfig?.apiKey && !showSettings && (
+                <div
+                    data-overlay="true"
+                    className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[9998] pointer-events-auto"
+                >
+                    <button
+                        onClick={() => setShowSettings(true)}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+                    >
+                        Configure API Key to Start
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

@@ -5,27 +5,18 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 
-// Env vars are now loaded by ./loadEnv import above
-
-
 // Validate critical environment variables
-if (!process.env.GEMINI_API_KEY) {
-    console.error('❌ GEMINI_API_KEY is not defined in .env.local');
-    console.error('   Please ensure .env.local contains: GEMINI_API_KEY=your_api_key_here');
+if (!process.env.JWT_SECRET) {
+    console.error('JWT_SECRET is not defined. Please set it in .env or .env.local');
     process.exit(1);
 }
-console.log('✅ GEMINI_API_KEY loaded successfully');
 
 // Import routes
 import authRoutes from './routes/auth';
 import userRoutes from './routes/user';
-import projectRoutes from './routes/projects';
-import conversationRoutes from './routes/conversations';
-import searchRoutes from './routes/search';
 import sessionRoutes from './routes/sessions';
 import turnRoutes from './routes/turns';
 import { protect } from './middleware/authMiddleware';
-import ttsRoutes from './routes/tts';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -36,10 +27,9 @@ app.use(cors({
     origin: ['http://localhost:3000', 'http://localhost:5173', process.env.VITE_APP_URL || ''],
     credentials: true
 }));
-app.use(express.json({ limit: '50mb' })); // Increased limit for base64 audio
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
-// Database Connection
 // Database Connection
 const connectDB = async () => {
     try {
@@ -74,15 +64,8 @@ app.get('/api/health', (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
-app.use('/api/projects', protect, projectRoutes);
-app.use('/api/conversations', protect, conversationRoutes); // Keep for backward compatibility
-app.use('/api/search', protect, searchRoutes);
-
-// New normalized schema routes
 app.use('/api/sessions', protect, sessionRoutes);
 app.use('/api/sessions', protect, turnRoutes);
-
-app.use('/api/tts', protect, ttsRoutes);
 
 // Error handling middleware (add at the end)
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

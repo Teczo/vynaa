@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
 import User from '../models/User';
-import Project from '../models/Project';
-import Conversation from '../models/Conversation';
+import ChatSession from '../models/ChatSession';
+import Turn from '../models/Turn';
 import Session from '../models/Session';
-import Token from '../models/Token';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -20,7 +19,7 @@ export const getMe = async (req: AuthRequest, res: Response) => {
     }
 };
 
-// @desc    Update user profile & preferences
+// @desc    Update user profile
 // @route   PATCH /api/user/me
 export const updateMe = async (req: AuthRequest, res: Response) => {
     try {
@@ -28,18 +27,11 @@ export const updateMe = async (req: AuthRequest, res: Response) => {
 
         if (user) {
             user.name = req.body.name || user.name;
-
-            if (req.body.preferences) {
-                user.preferences = { ...user.preferences, ...req.body.preferences };
-            }
-
             const updatedUser = await user.save();
             res.json({
                 _id: updatedUser._id,
                 name: updatedUser.name,
                 email: updatedUser.email,
-                preferences: updatedUser.preferences,
-                isEmailVerified: updatedUser.isEmailVerified
             });
         } else {
             res.status(404).json({ message: 'User not found' });
@@ -56,19 +48,20 @@ export const exportData = async (req: AuthRequest, res: Response) => {
         const userId = req.user._id;
 
         const user = await User.findById(userId).select('-passwordHash');
-        const projects = await Project.find({ ownerId: userId });
-        const conversations = await Conversation.find({ ownerId: userId });
+        const chatSessions = await ChatSession.find({ userId });
+        const sessionIds = chatSessions.map(s => s._id);
+        const turns = await Turn.find({ sessionId: { $in: sessionIds } });
 
-        const exportData = {
+        const data = {
             user,
-            projects,
-            conversations,
-            timestamp: new Date()
+            sessions: chatSessions,
+            turns,
+            timestamp: new Date(),
         };
 
         res.header('Content-Type', 'application/json');
         res.attachment(`vynaa-export-${userId}-${Date.now()}.json`);
-        res.send(JSON.stringify(exportData, null, 2));
+        res.send(JSON.stringify(data, null, 2));
     } catch (error: any) {
         res.status(500).json({ message: error.message });
     }
@@ -80,11 +73,11 @@ export const deleteAccount = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user._id;
 
-        // Delete all related data
-        await Project.deleteMany({ ownerId: userId });
-        await Conversation.deleteMany({ ownerId: userId });
+        const chatSessions = await ChatSession.find({ userId });
+        const sessionIds = chatSessions.map(s => s._id);
+        await Turn.deleteMany({ sessionId: { $in: sessionIds } });
+        await ChatSession.deleteMany({ userId });
         await Session.deleteMany({ userId });
-        await Token.deleteMany({ userId });
         await User.findByIdAndDelete(userId);
 
         res.clearCookie('refreshToken');
